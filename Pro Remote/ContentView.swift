@@ -22,21 +22,18 @@ struct ContentView: View {
                 ConnectionStatusBadge(isConnected: viewModel.isConnected)
             }
 
-            #if os(iOS)
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: .automatic) {
                 Button {
                     viewModel.showSettings = true
                 } label: {
                     Image(systemName: "gear")
                 }
             }
-            #endif
 
             ToolbarItemGroup(placement: .automatic) {
                 CompanionButtonsView()
             }
         }
-        #if os(iOS)
         .sheet(isPresented: $vm.showSettings) {
             NavigationStack {
                 SettingsView()
@@ -46,8 +43,10 @@ struct ContentView: View {
                         }
                     }
             }
+            #if os(macOS)
+            .frame(minWidth: 450, minHeight: 350)
+            #endif
         }
-        #endif
         .task {
             if !viewModel.host.isEmpty && !viewModel.isConnected {
                 await viewModel.connect()
