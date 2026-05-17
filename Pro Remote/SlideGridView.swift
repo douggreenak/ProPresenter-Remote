@@ -122,14 +122,12 @@ private struct SlideCell: View {
     @State private var isHovered = false
 
     private var borderColor: Color {
-        if isLive { return .red }
-        if isNext { return .blue }
+        if isLive { return ProPresenterViewModel.liveColor }
         return Color(white: 0.28)
     }
 
     private var borderWidth: CGFloat {
         if isLive { return 3 }
-        if isNext { return 2.5 }
         return 1
     }
 

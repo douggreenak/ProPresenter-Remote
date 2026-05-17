@@ -10,13 +10,9 @@ struct ContentView: View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             PresentationListView()
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 280)
-        } content: {
-            SlideGridView()
         } detail: {
-            NotesView()
-                .navigationSplitViewColumnWidth(min: 200, ideal: 280, max: 380)
+            SlideGridView()
         }
-        .navigationSplitViewStyle(.balanced)
         .toolbar {
             ToolbarItem(placement: .automatic) {
                 ConnectionStatusBadge(

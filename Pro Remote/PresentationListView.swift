@@ -27,7 +27,7 @@ struct PresentationListView: View {
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, 5)
                                 .padding(.vertical, 2)
-                                .background(.red, in: Capsule())
+                                .background(ProPresenterViewModel.liveColor, in: Capsule())
                         }
                     }
                     .tag(presentation.uuid)
@@ -122,7 +122,7 @@ private struct SlideCueList: View {
                                 }
                                 .frame(height: 22)
                                 .frame(maxWidth: .infinity)
-                                .background(isLive ? Color.red : Color.clear)
+                                .background(isLive ? ProPresenterViewModel.liveColor : Color.clear)
                             }
                             .buttonStyle(.plain)
                             .id(slide.index)

@@ -28,7 +28,7 @@ struct NotesView: View {
                         } placeholder: {
                             Rectangle().fill(Color(white: 0.13)).aspectRatio(16 / 9, contentMode: .fit)
                         }
-                        .overlay(Rectangle().strokeBorder(Color.red, lineWidth: 2))
+                        .overlay(Rectangle().strokeBorder(ProPresenterViewModel.liveColor, lineWidth: 2))
                         .padding(.horizontal, 8)
                     }
                 }
@@ -52,7 +52,7 @@ struct NotesView: View {
                             } placeholder: {
                                 Rectangle().fill(Color(white: 0.13)).aspectRatio(16 / 9, contentMode: .fit)
                             }
-                            .overlay(Rectangle().strokeBorder(Color.blue, lineWidth: 1.5))
+                            .overlay(Rectangle().strokeBorder(Color(white: 0.28), lineWidth: 1))
                             .padding(.horizontal, 8)
                         }
                     }
