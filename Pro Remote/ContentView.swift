@@ -1,24 +1,79 @@
-//
-//  ContentView.swift
-//  Pro Remote
-//
-//  Created by STREAMING on 5/17/26.
-//
-
 import SwiftUI
 
 struct ContentView: View {
+    @Environment(ProPresenterViewModel.self) private var viewModel
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
+        @Bindable var vm = viewModel
+
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            PresentationListView()
+                .navigationSplitViewColumnWidth(min: 200, ideal: 250, max: 300)
+        } content: {
+            SlideGridView()
+        } detail: {
+            NotesView()
+                .navigationSplitViewColumnWidth(min: 200, ideal: 300, max: 400)
         }
-        .padding()
+        .navigationSplitViewStyle(.balanced)
+        .toolbar {
+            ToolbarItem(placement: .automatic) {
+                ConnectionStatusBadge(isConnected: viewModel.isConnected)
+            }
+
+            #if os(iOS)
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    viewModel.showSettings = true
+                } label: {
+                    Image(systemName: "gear")
+                }
+            }
+            #endif
+
+            ToolbarItemGroup(placement: .automatic) {
+                CompanionButtonsView()
+            }
+        }
+        #if os(iOS)
+        .sheet(isPresented: $vm.showSettings) {
+            NavigationStack {
+                SettingsView()
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { viewModel.showSettings = false }
+                        }
+                    }
+            }
+        }
+        #endif
+        .task {
+            if !viewModel.host.isEmpty && !viewModel.isConnected {
+                await viewModel.connect()
+            }
+        }
+    }
+}
+
+// MARK: - Connection Status Badge
+
+private struct ConnectionStatusBadge: View {
+    let isConnected: Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(isConnected ? .green : .red)
+                .frame(width: 8, height: 8)
+            Text(isConnected ? "Connected" : "Offline")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 }
 
 #Preview {
     ContentView()
+        .environment(ProPresenterViewModel())
 }
