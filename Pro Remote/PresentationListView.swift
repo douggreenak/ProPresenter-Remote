@@ -5,7 +5,7 @@ struct PresentationListView: View {
 
     var body: some View {
         Group {
-            if viewModel.isConnected {
+            if viewModel.isConnected || !viewModel.presentations.isEmpty {
                 List {
                     ForEach(viewModel.presentations) { presentation in
                         Button {
@@ -25,7 +25,7 @@ struct PresentationListView: View {
                     }
                 }
                 .refreshable {
-                    await viewModel.fetchPresentations()
+                    await viewModel.refreshAll()
                 }
             } else {
                 ContentUnavailableView {

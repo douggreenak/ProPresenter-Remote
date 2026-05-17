@@ -11,8 +11,10 @@ final class ProPresenterViewModel {
     var currentSlideIndex: Int = 0
     var livePresentationUUID: String = ""
     var isConnected: Bool = false
+    var isWebSocketConnected: Bool = false
     var connectionError: String?
     var showSettings: Bool = false
+    var apiDebugLog: String = ""
 
     var host: String {
         didSet { UserDefaults.standard.set(host, forKey: "pp_host") }
@@ -54,7 +56,7 @@ final class ProPresenterViewModel {
             self?.handleSlideUpdate(index: index, uuid: uuid)
         }
         webSocket.onConnectionChange = { [weak self] connected in
-            self?.isConnected = connected
+            self?.isWebSocketConnected = connected
         }
     }
 
@@ -101,21 +103,26 @@ final class ProPresenterViewModel {
     // MARK: - Data Loading
 
     func refreshAll() async {
-        async let p: () = fetchPresentations()
-        async let a: () = fetchActivePresentation()
-        async let s: () = fetchSlideStatus()
-        _ = await (p, a, s)
+        await fetchPresentations()
+        await fetchActivePresentation()
+        await fetchSlideStatus()
     }
 
     func fetchPresentations() async {
-        guard let result = try? await api.fetchPresentations(host: host, port: portInt) else { return }
-        presentations = result
+        let result = await api.fetchSidebarItems(host: host, port: portInt)
+        apiDebugLog = result.debugLog
+        if !result.items.isEmpty {
+            presentations = result.items
+        }
     }
 
     func fetchActivePresentation() async {
         guard let active = try? await api.fetchActivePresentation(host: host, port: portInt) else { return }
         selectedPresentation = active
         livePresentationUUID = active.uuid
+        if !presentations.contains(where: { $0.uuid == active.uuid }) {
+            presentations.append(Presentation(uuid: active.uuid, name: active.name, index: active.index))
+        }
     }
 
     func fetchSlideStatus() async {

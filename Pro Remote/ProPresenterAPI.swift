@@ -14,16 +14,117 @@ actor ProPresenterAPI {
         "http://\(host):\(port)"
     }
 
-    // MARK: - Presentations
+    // MARK: - Fetch sidebar items (tries multiple strategies)
 
-    func fetchPresentations(host: String, port: Int) async throws -> [Presentation] {
-        let url = URL(string: "\(base(host, port))/v1/presentations")!
-        let (data, _) = try await session.data(from: url)
-        let items = try JSONDecoder().decode([PresentationListItem].self, from: data)
-        return items.map {
-            Presentation(uuid: $0.id.uuid, name: $0.id.name, index: $0.id.index)
+    func fetchSidebarItems(host: String, port: Int) async -> (items: [Presentation], debugLog: String) {
+        var log = ""
+
+        // Strategy 1: /v1/playlists
+        do {
+            let url = URL(string: "\(base(host, port))/v1/playlists")!
+            let (data, resp) = try await session.data(from: url)
+            let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            let raw = String(data: data, encoding: .utf8) ?? "(binary)"
+            log += "[/v1/playlists] status=\(status) body=\(raw.prefix(500))\n"
+
+            if status == 200 {
+                let decoder = JSONDecoder()
+                // Try as array of playlist nodes
+                if let nodes = try? decoder.decode([PlaylistNode].self, from: data) {
+                    let items = nodes.flatMap { $0.allPresentations() }
+                    if !items.isEmpty {
+                        log += "  -> parsed \(items.count) presentations from array\n"
+                        return (items, log)
+                    }
+                }
+                // Try as wrapper
+                if let wrapper = try? decoder.decode(PlaylistListWrapper.self, from: data),
+                   let playlists = wrapper.playlists {
+                    let items = playlists.flatMap { $0.allPresentations() }
+                    if !items.isEmpty {
+                        log += "  -> parsed \(items.count) presentations from wrapper\n"
+                        return (items, log)
+                    }
+                }
+                // Try the data as a single playlist node
+                if let node = try? decoder.decode(PlaylistNode.self, from: data) {
+                    let items = node.allPresentations()
+                    if !items.isEmpty {
+                        log += "  -> parsed \(items.count) presentations from single node\n"
+                        return (items, log)
+                    }
+                }
+                log += "  -> could not decode\n"
+            }
+        } catch {
+            log += "[/v1/playlists] error: \(error.localizedDescription)\n"
         }
+
+        // Strategy 2: /v1/playlist/active
+        do {
+            let url = URL(string: "\(base(host, port))/v1/playlist/active")!
+            let (data, resp) = try await session.data(from: url)
+            let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            let raw = String(data: data, encoding: .utf8) ?? "(binary)"
+            log += "[/v1/playlist/active] status=\(status) body=\(raw.prefix(500))\n"
+
+            if status == 200 {
+                let decoder = JSONDecoder()
+                if let node = try? decoder.decode(PlaylistNode.self, from: data) {
+                    let items = node.allPresentations()
+                    if !items.isEmpty {
+                        log += "  -> parsed \(items.count) presentations\n"
+                        return (items, log)
+                    }
+                }
+                log += "  -> could not decode\n"
+            }
+        } catch {
+            log += "[/v1/playlist/active] error: \(error.localizedDescription)\n"
+        }
+
+        // Strategy 3: /v1/presentations
+        do {
+            let url = URL(string: "\(base(host, port))/v1/presentations")!
+            let (data, resp) = try await session.data(from: url)
+            let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            let raw = String(data: data, encoding: .utf8) ?? "(binary)"
+            log += "[/v1/presentations] status=\(status) body=\(raw.prefix(500))\n"
+
+            if status == 200 {
+                let decoder = JSONDecoder()
+                if let items = try? decoder.decode([PresentationListItem].self, from: data) {
+                    let result = items.map { Presentation(uuid: $0.id.uuid, name: $0.id.name, index: $0.id.index) }
+                    if !result.isEmpty {
+                        log += "  -> parsed \(result.count) presentations\n"
+                        return (result, log)
+                    }
+                }
+                if let wrapper = try? decoder.decode(PresentationListWrapper.self, from: data) {
+                    let result = wrapper.presentations.map { Presentation(uuid: $0.id.uuid, name: $0.id.name, index: $0.id.index) }
+                    if !result.isEmpty {
+                        log += "  -> parsed \(result.count) presentations from wrapper\n"
+                        return (result, log)
+                    }
+                }
+                if let ids = try? decoder.decode([PresentationIdentifier].self, from: data) {
+                    let result = ids.map { Presentation(uuid: $0.uuid, name: $0.name, index: $0.index) }
+                    if !result.isEmpty {
+                        log += "  -> parsed \(result.count) presentations flat\n"
+                        return (result, log)
+                    }
+                }
+                log += "  -> could not decode\n"
+            }
+        } catch {
+            log += "[/v1/presentations] error: \(error.localizedDescription)\n"
+        }
+
+        log += "All strategies failed.\n"
+        return ([], log)
     }
+
+    // MARK: - Active Presentation
 
     func fetchActivePresentation(host: String, port: Int) async throws -> Presentation {
         let url = URL(string: "\(base(host, port))/v1/presentation/active")!
@@ -31,6 +132,8 @@ actor ProPresenterAPI {
         let response = try JSONDecoder().decode(ActivePresentationResponse.self, from: data)
         return mapPayload(response.presentation)
     }
+
+    // MARK: - Slide Status
 
     func fetchSlideStatus(host: String, port: Int) async throws -> (slideIndex: Int, presentationUUID: String?) {
         let url = URL(string: "\(base(host, port))/v1/status/slide")!

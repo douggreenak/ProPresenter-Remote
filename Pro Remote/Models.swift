@@ -71,6 +71,51 @@ struct PresentationIndexPayload: Codable {
     }
 }
 
+struct PresentationListWrapper: Codable {
+    let presentations: [PresentationListItem]
+}
+
+// MARK: - Playlist API Response Types (recursive)
+
+struct PlaylistNode: Codable {
+    let id: PresentationIdentifier?
+    let type: String?
+    let items: [PlaylistNode]?
+    let children: [PlaylistNode]?
+    let name: String?
+
+    func allPresentations() -> [Presentation] {
+        var results: [Presentation] = []
+
+        // If this node has an id and looks like a presentation (leaf node)
+        if let nodeId = id,
+           type != "playlist" && type != "playlist_folder" && type != "folder",
+           items == nil && children == nil {
+            results.append(Presentation(uuid: nodeId.uuid, name: nodeId.name, index: nodeId.index))
+        }
+
+        // Recurse into items
+        if let items {
+            for item in items {
+                results.append(contentsOf: item.allPresentations())
+            }
+        }
+
+        // Recurse into children
+        if let children {
+            for child in children {
+                results.append(contentsOf: child.allPresentations())
+            }
+        }
+
+        return results
+    }
+}
+
+struct PlaylistListWrapper: Codable {
+    let playlists: [PlaylistNode]?
+}
+
 // MARK: - App Models
 
 struct Presentation: Identifiable, Hashable {

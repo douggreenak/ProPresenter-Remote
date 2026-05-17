@@ -19,7 +19,10 @@ struct ContentView: View {
         .navigationSplitViewStyle(.balanced)
         .toolbar {
             ToolbarItem(placement: .automatic) {
-                ConnectionStatusBadge(isConnected: viewModel.isConnected)
+                ConnectionStatusBadge(
+                    isConnected: viewModel.isConnected,
+                    isWebSocketConnected: viewModel.isWebSocketConnected
+                )
             }
 
             ToolbarItem(placement: .automatic) {
@@ -59,16 +62,30 @@ struct ContentView: View {
 
 private struct ConnectionStatusBadge: View {
     let isConnected: Bool
+    let isWebSocketConnected: Bool
+
+    private var color: Color {
+        if isConnected && isWebSocketConnected { return .green }
+        if isConnected { return .yellow }
+        return .red
+    }
+
+    private var label: String {
+        if isConnected && isWebSocketConnected { return "Live" }
+        if isConnected { return "REST" }
+        return "Offline"
+    }
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 4) {
             Circle()
-                .fill(isConnected ? .green : .red)
+                .fill(color)
                 .frame(width: 8, height: 8)
-            Text(isConnected ? "Connected" : "Offline")
-                .font(.caption)
+            Text(label)
+                .font(.caption2)
                 .foregroundStyle(.secondary)
         }
+        .fixedSize()
     }
 }
 
