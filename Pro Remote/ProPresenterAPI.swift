@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 actor ProPresenterAPI {
     private let session: URLSession
@@ -197,6 +198,19 @@ actor ProPresenterAPI {
         return mapPayload(response.presentation)
     }
 
+    // MARK: - Fetch Presentation by UUID (read-only)
+
+    func fetchPresentation(host: String, port: Int, uuid: String) async throws -> Presentation {
+        let url = URL(string: "\(base(host, port))/v1/presentation/\(uuid)")!
+        let (data, _) = try await session.data(from: url)
+        let decoder = JSONDecoder()
+        if let wrapped = try? decoder.decode(ActivePresentationResponse.self, from: data) {
+            return mapPayload(wrapped.presentation)
+        }
+        let payload = try decoder.decode(PresentationPayload.self, from: data)
+        return mapPayload(payload)
+    }
+
     // MARK: - Slide Status
 
     func fetchSlideStatus(host: String, port: Int) async throws -> (slideIndex: Int, presentationUUID: String?) {
@@ -246,13 +260,17 @@ actor ProPresenterAPI {
         var idx = 0
         var slides: [Slide] = []
         for group in p.groups {
+            let color: Color? = group.color.map {
+                Color(red: $0.red, green: $0.green, blue: $0.blue, opacity: $0.alpha)
+            }
             for s in group.slides {
                 slides.append(Slide(
                     id: idx,
                     text: s.text,
                     notes: s.notes,
                     enabled: s.enabled,
-                    groupName: group.name
+                    groupName: group.name,
+                    groupColor: color
                 ))
                 idx += 1
             }

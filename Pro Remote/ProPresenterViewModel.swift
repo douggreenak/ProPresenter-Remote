@@ -6,9 +6,11 @@ import SwiftUI
 final class ProPresenterViewModel {
     // MARK: - State
 
+    static let liveColor = Color(red: 0.91, green: 0.41, blue: 0.15)
+
     var presentations: [Presentation] = []
     var selectedPresentation: Presentation?
-    var currentSlideIndex: Int = 0
+    var liveSlideIndex: Int = 0
     var livePresentationUUID: String = ""
     var isConnected: Bool = false
     var isWebSocketConnected: Bool = false
@@ -30,19 +32,30 @@ final class ProPresenterViewModel {
 
     private let api = ProPresenterAPI()
     private let webSocket = WebSocketManager()
+    private var pollTask: Task<Void, Never>?
 
     // MARK: - Computed
 
     var portInt: Int { Int(port) ?? 1025 }
 
+    var isViewingLivePresentation: Bool {
+        selectedPresentation?.uuid == livePresentationUUID
+    }
+
+    var currentSlideIndex: Int {
+        isViewingLivePresentation ? liveSlideIndex : 0
+    }
+
     var currentSlide: Slide? {
-        selectedPresentation?.slides[safe: currentSlideIndex]
+        guard isViewingLivePresentation else { return nil }
+        return selectedPresentation?.slides[safe: liveSlideIndex]
     }
 
     var nextSlideIndex: Int? {
-        guard let slides = selectedPresentation?.slides,
-              currentSlideIndex + 1 < slides.count else { return nil }
-        return currentSlideIndex + 1
+        guard isViewingLivePresentation,
+              let slides = selectedPresentation?.slides,
+              liveSlideIndex + 1 < slides.count else { return nil }
+        return liveSlideIndex + 1
     }
 
     // MARK: - Init
@@ -77,6 +90,7 @@ final class ProPresenterViewModel {
             isConnected = true
             webSocket.connect(host: host, port: portInt)
             await refreshAll()
+            startPolling()
         } catch {
             connectionError = error.localizedDescription
             isConnected = false
@@ -84,6 +98,8 @@ final class ProPresenterViewModel {
     }
 
     func disconnect() {
+        pollTask?.cancel()
+        pollTask = nil
         webSocket.disconnect()
         isConnected = false
         presentations = []
@@ -97,6 +113,22 @@ final class ProPresenterViewModel {
         } catch {
             connectionError = error.localizedDescription
             return false
+        }
+    }
+
+    // MARK: - Polling
+
+    private func startPolling() {
+        pollTask?.cancel()
+        pollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled, let self else { return }
+                await self.fetchSlideStatus()
+                if self.isViewingLivePresentation {
+                    await self.fetchActivePresentation()
+                }
+            }
         }
     }
 
@@ -118,8 +150,11 @@ final class ProPresenterViewModel {
 
     func fetchActivePresentation() async {
         guard let active = try? await api.fetchActivePresentation(host: host, port: portInt) else { return }
-        selectedPresentation = active
+        let wasViewingLive = selectedPresentation == nil || selectedPresentation?.uuid == livePresentationUUID
         livePresentationUUID = active.uuid
+        if wasViewingLive {
+            selectedPresentation = active
+        }
         if !presentations.contains(where: { $0.uuid == active.uuid }) {
             presentations.append(Presentation(uuid: active.uuid, name: active.name, index: active.index))
         }
@@ -127,26 +162,34 @@ final class ProPresenterViewModel {
 
     func fetchSlideStatus() async {
         guard let status = try? await api.fetchSlideStatus(host: host, port: portInt) else { return }
-        currentSlideIndex = status.slideIndex
-        if let uuid = status.presentationUUID { livePresentationUUID = uuid }
+        let previousUUID = livePresentationUUID
+        liveSlideIndex = status.slideIndex
+        if let uuid = status.presentationUUID {
+            livePresentationUUID = uuid
+            if uuid != previousUUID {
+                await fetchActivePresentation()
+            }
+        }
     }
 
-    // MARK: - Actions
+    // MARK: - Selection (read-only, never pushes state)
 
     func selectPresentation(_ presentation: Presentation) async {
         if presentation.uuid == selectedPresentation?.uuid { return }
         do {
-            try await api.triggerSlide(host: host, port: portInt, uuid: presentation.uuid, index: 0)
-            await fetchActivePresentation()
-            await fetchSlideStatus()
+            let full = try await api.fetchPresentation(host: host, port: portInt, uuid: presentation.uuid)
+            selectedPresentation = full
         } catch {
             selectedPresentation = presentation
         }
     }
 
+    // MARK: - Actions (only called by explicit user interaction)
+
     func triggerSlide(at index: Int) async {
         guard let pres = selectedPresentation else { return }
-        currentSlideIndex = index
+        liveSlideIndex = index
+        livePresentationUUID = pres.uuid
         try? await api.triggerSlide(host: host, port: portInt, uuid: pres.uuid, index: index)
     }
 
@@ -171,7 +214,7 @@ final class ProPresenterViewModel {
     // MARK: - WebSocket Handler
 
     private func handleSlideUpdate(index: Int, uuid: String) {
-        currentSlideIndex = index
+        liveSlideIndex = index
         if !uuid.isEmpty && uuid != livePresentationUUID {
             livePresentationUUID = uuid
             Task { await fetchActivePresentation() }

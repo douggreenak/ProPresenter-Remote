@@ -3,14 +3,14 @@ import SwiftUI
 struct SlideGridView: View {
     @Environment(ProPresenterViewModel.self) private var viewModel
 
-    private let columns = [GridItem(.adaptive(minimum: 190, maximum: 300), spacing: 14)]
+    private let columns = [GridItem(.adaptive(minimum: 200, maximum: 320), spacing: 8)]
 
     var body: some View {
         VStack(spacing: 0) {
             if let presentation = viewModel.selectedPresentation {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVGrid(columns: columns, spacing: 14) {
+                        LazyVGrid(columns: columns, spacing: 8) {
                             ForEach(presentation.slides) { slide in
                                 SlideCell(
                                     slide: slide,
@@ -23,8 +23,9 @@ struct SlideGridView: View {
                                 .id(slide.index)
                             }
                         }
-                        .padding(16)
+                        .padding(8)
                     }
+                    .background(Color(white: 0.14))
                     .onAppear {
                         proxy.scrollTo(viewModel.currentSlideIndex, anchor: .center)
                     }
@@ -53,47 +54,59 @@ struct SlideGridView: View {
     }
 
     private var transportBar: some View {
-        HStack(spacing: 0) {
-            Button {
-                Task { await viewModel.triggerPrevious() }
-            } label: {
-                Image(systemName: "backward.fill")
-                    .font(.title3)
-                    .frame(width: 64, height: 44)
-            }
-            .buttonStyle(.plain)
-            .keyboardShortcut(.leftArrow, modifiers: .command)
-
+        HStack {
             Spacer()
-
-            if let slide = viewModel.currentSlide,
-               let total = viewModel.selectedPresentation?.slides.count {
-                VStack(spacing: 2) {
-                    Text("\(slide.index + 1) / \(total)")
-                        .font(.headline.monospacedDigit())
-                    if !slide.groupName.isEmpty {
-                        Text(slide.groupName)
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                    }
+            HStack(spacing: 12) {
+                Button { Task { await viewModel.triggerSlide(at: 0) } } label: {
+                    Image(systemName: "backward.end.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(Color(white: 0.55))
+                        .frame(width: 28, height: 28)
                 }
-            }
+                .buttonStyle(.plain)
 
+                Button { Task { await viewModel.triggerPrevious() } } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(Color(white: 0.55))
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.leftArrow, modifiers: .command)
+
+                if let slide = viewModel.currentSlide,
+                   let total = viewModel.selectedPresentation?.slides.count {
+                    Text("\(slide.index + 1) / \(total)")
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundColor(Color(white: 0.45))
+                        .frame(minWidth: 44)
+                }
+
+                Button { Task { await viewModel.triggerNext() } } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(Color(white: 0.55))
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.rightArrow, modifiers: .command)
+
+                Button {
+                    if let last = viewModel.selectedPresentation?.slides.last {
+                        Task { await viewModel.triggerSlide(at: last.index) }
+                    }
+                } label: {
+                    Image(systemName: "forward.end.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(Color(white: 0.55))
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+            }
             Spacer()
-
-            Button {
-                Task { await viewModel.triggerNext() }
-            } label: {
-                Image(systemName: "forward.fill")
-                    .font(.title3)
-                    .frame(width: 64, height: 44)
-            }
-            .buttonStyle(.plain)
-            .keyboardShortcut(.rightArrow, modifiers: .command)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 8)
-        .background(.ultraThinMaterial)
+        .frame(height: 30)
+        .background(Color(white: 0.09))
     }
 }
 
@@ -108,90 +121,67 @@ private struct SlideCell: View {
 
     @State private var isHovered = false
 
+    private var borderColor: Color {
+        if isLive { return .red }
+        if isNext { return .blue }
+        return Color(white: 0.28)
+    }
+
+    private var borderWidth: CGFloat {
+        if isLive { return 3 }
+        if isNext { return 2.5 }
+        return 1
+    }
+
     var body: some View {
         Button(action: onTap) {
-            VStack(spacing: 0) {
-                ZStack(alignment: .topTrailing) {
-                    AsyncImage(url: thumbnailURL) { image in
-                        image
-                            .resizable()
-                            .aspectRatio(16 / 9, contentMode: .fit)
-                    } placeholder: {
-                        Rectangle()
-                            .fill(.quaternary)
-                            .aspectRatio(16 / 9, contentMode: .fit)
-                            .overlay {
-                                if !slide.text.isEmpty {
-                                    Text(slide.text)
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                        .padding(8)
-                                        .multilineTextAlignment(.center)
-                                        .lineLimit(4)
-                                } else {
-                                    Image(systemName: "photo")
-                                        .font(.title2)
-                                        .foregroundStyle(.tertiary)
-                                }
-                            }
-                    }
-
-                    if isLive {
-                        Text("LIVE")
-                            .font(.system(size: 9, weight: .black))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 3)
-                            .background(.red, in: Capsule())
-                            .padding(6)
-                    } else if isNext {
-                        Text("NEXT")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 3)
-                            .background(Color.accentColor, in: Capsule())
-                            .padding(6)
-                    }
+            VStack(alignment: .leading, spacing: 0) {
+                AsyncImage(url: thumbnailURL) { image in
+                    image
+                        .resizable()
+                        .aspectRatio(16 / 9, contentMode: .fit)
+                } placeholder: {
+                    Rectangle()
+                        .fill(Color(white: 0.18))
+                        .aspectRatio(16 / 9, contentMode: .fit)
                 }
 
-                HStack {
-                    Text("\(slide.index + 1)")
-                        .font(.caption.weight(.medium).monospacedDigit())
-                        .foregroundStyle(.secondary)
-
+                // Info area — medium gray like ProPresenter
+                VStack(alignment: .leading, spacing: 1) {
                     if !slide.groupName.isEmpty {
-                        Text(slide.groupName)
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
+                        Text(slide.groupName + ":")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(Color(white: 0.7))
+                    }
+                    if !slide.text.isEmpty {
+                        Text(slide.text)
+                            .font(.system(size: 9.5))
+                            .foregroundColor(Color(white: 0.55))
+                            .lineLimit(3)
+                            .multilineTextAlignment(.leading)
                     }
 
-                    Spacer()
+                    HStack {
+                        Spacer()
+                        Text("\(slide.index + 1)")
+                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .foregroundColor(Color(white: 0.45))
+                    }
+                    .padding(.top, 1)
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
+                .padding(.horizontal, 6)
+                .padding(.top, 4)
+                .padding(.bottom, 3)
+                .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
+                .background(Color(white: 0.22))
             }
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .overlay {
-                if isLive {
-                    RoundedRectangle(cornerRadius: 10)
-                        .strokeBorder(Color.red, lineWidth: 2.5)
-                } else if isNext {
-                    RoundedRectangle(cornerRadius: 10)
-                        .strokeBorder(Color.accentColor.opacity(0.6), lineWidth: 2)
-                } else {
-                    RoundedRectangle(cornerRadius: 10)
-                        .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
-                }
-            }
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 3))
+            .overlay(
+                RoundedRectangle(cornerRadius: 3)
+                    .strokeBorder(borderColor, lineWidth: borderWidth)
             )
-            .shadow(color: isLive ? .red.opacity(0.35) : .clear, radius: 10)
-            .scaleEffect(isHovered ? 1.025 : 1.0)
-            .animation(.easeOut(duration: 0.15), value: isHovered)
+            .scaleEffect(isHovered ? 1.02 : 1.0)
+            .animation(.easeOut(duration: 0.12), value: isHovered)
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }

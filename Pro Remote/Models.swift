@@ -141,8 +141,18 @@ struct Slide: Identifiable, Hashable {
     let notes: String
     let enabled: Bool
     let groupName: String
+    let groupColor: Color?
 
     var index: Int { id }
+
+    init(id: Int, text: String, notes: String, enabled: Bool, groupName: String, groupColor: Color? = nil) {
+        self.id = id
+        self.text = text
+        self.notes = notes
+        self.enabled = enabled
+        self.groupName = groupName
+        self.groupColor = groupColor
+    }
 }
 
 struct CompanionButton: Identifiable, Codable, Hashable {

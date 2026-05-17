@@ -5,7 +5,6 @@ struct PresentationListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Playlist section
             List(selection: Binding<String?>(
                 get: { viewModel.selectedPresentation?.uuid },
                 set: { uuid in
@@ -36,13 +35,11 @@ struct PresentationListView: View {
             }
             .listStyle(.sidebar)
 
-            // Slide cue list
             if let selected = viewModel.selectedPresentation, !selected.slides.isEmpty {
-                Divider()
-
                 SlideCueList(
                     presentation: selected,
-                    currentSlideIndex: viewModel.currentSlideIndex,
+                    currentSlideIndex: viewModel.liveSlideIndex,
+                    isLivePresentation: selected.uuid == viewModel.livePresentationUUID,
                     onTrigger: { index in
                         Task { await viewModel.triggerSlide(at: index) }
                     }
@@ -74,75 +71,62 @@ struct PresentationListView: View {
 private struct SlideCueList: View {
     let presentation: Presentation
     let currentSlideIndex: Int
+    let isLivePresentation: Bool
     let onTrigger: (Int) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(spacing: 0) {
+            Divider()
+
             HStack {
                 Text(presentation.name)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.6))
                 Spacer()
-
-                Text("\(presentation.slides.count) slides")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
             }
-            .padding(.horizontal, 14)
-            .padding(.top, 10)
-            .padding(.bottom, 6)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(Color(white: 0.13))
+
+            Divider()
 
             ScrollViewReader { proxy in
                 ScrollView {
-                    GlassEffectContainer(spacing: 2) {
-                        VStack(spacing: 3) {
-                            ForEach(presentation.slides) { slide in
-                                let isLive = slide.index == currentSlideIndex
+                    LazyVStack(spacing: 0) {
+                        ForEach(presentation.slides) { slide in
+                            let isLive = isLivePresentation && slide.index == currentSlideIndex
 
-                                Button { onTrigger(slide.index) } label: {
-                                    HStack(spacing: 8) {
-                                        Text("\(slide.index + 1)")
-                                            .font(.system(size: 11, weight: .medium, design: .monospaced))
-                                            .foregroundStyle(isLive ? .white : .secondary)
-                                            .frame(width: 22, alignment: .trailing)
+                            Button { onTrigger(slide.index) } label: {
+                                HStack(spacing: 0) {
+                                    // Group color bar
+                                    RoundedRectangle(cornerRadius: 1)
+                                        .fill(slide.groupColor ?? Color.gray.opacity(0.4))
+                                        .frame(width: 3, height: 14)
+                                        .padding(.leading, 4)
 
-                                        VStack(alignment: .leading, spacing: 0) {
-                                            if !slide.groupName.isEmpty {
-                                                Text(slide.groupName)
-                                                    .font(.system(size: 10, weight: .semibold))
-                                                    .foregroundStyle(isLive ? Color.white.opacity(0.8) : Color.gray)
-                                            }
+                                    // Slide number
+                                    Text("\(slide.index + 1)")
+                                        .font(.system(size: 12, design: .monospaced))
+                                        .foregroundColor(isLive ? .white : Color(white: 0.5))
+                                        .frame(width: 26, alignment: .trailing)
+                                        .padding(.leading, 4)
 
-                                            Text(slide.text.isEmpty ? "—" : slide.text)
-                                                .font(.system(size: 11))
-                                                .foregroundStyle(isLive ? .white : .primary)
-                                                .lineLimit(1)
-                                        }
+                                    // Slide text
+                                    Text(slideLabel(slide))
+                                        .font(.system(size: 12))
+                                        .foregroundColor(isLive ? .white : Color(white: 0.85))
+                                        .lineLimit(1)
+                                        .padding(.leading, 6)
 
-                                        Spacer(minLength: 0)
-                                    }
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 6)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .background(
-                                        isLive
-                                            ? AnyShapeStyle(Color.red.opacity(0.85))
-                                            : AnyShapeStyle(.clear),
-                                        in: RoundedRectangle(cornerRadius: 8)
-                                    )
-                                    .glassEffect(
-                                        isLive ? .regular.tint(.red) : .regular,
-                                        in: .rect(cornerRadius: 8)
-                                    )
+                                    Spacer(minLength: 0)
                                 }
-                                .buttonStyle(.plain)
-                                .id(slide.index)
+                                .frame(height: 22)
+                                .frame(maxWidth: .infinity)
+                                .background(isLive ? Color.red : Color.clear)
                             }
+                            .buttonStyle(.plain)
+                            .id(slide.index)
                         }
-                        .padding(.horizontal, 8)
-                        .padding(.bottom, 8)
                     }
                 }
                 .onAppear {
@@ -155,6 +139,12 @@ private struct SlideCueList: View {
                 }
             }
         }
-        .background(.ultraThinMaterial)
+        .background(Color(white: 0.08))
+    }
+
+    private func slideLabel(_ slide: Slide) -> String {
+        if !slide.text.isEmpty { return slide.text }
+        if !slide.groupName.isEmpty { return slide.groupName }
+        return "Slide \(slide.index + 1)"
     }
 }
