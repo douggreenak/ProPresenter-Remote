@@ -134,9 +134,11 @@ final class ProPresenterViewModel {
     // MARK: - Actions
 
     func selectPresentation(_ presentation: Presentation) async {
+        if presentation.uuid == selectedPresentation?.uuid { return }
         do {
             try await api.triggerSlide(host: host, port: portInt, uuid: presentation.uuid, index: 0)
             await fetchActivePresentation()
+            await fetchSlideStatus()
         } catch {
             selectedPresentation = presentation
         }

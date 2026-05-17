@@ -18,35 +18,54 @@ actor ProPresenterAPI {
 
     func fetchSidebarItems(host: String, port: Int) async -> (items: [Presentation], debugLog: String) {
         var log = ""
+        let decoder = JSONDecoder()
 
-        // Strategy 1: /v1/playlists
+        // Strategy 1: /v1/playlists — get playlist list, then fetch each playlist's contents
         do {
             let url = URL(string: "\(base(host, port))/v1/playlists")!
             let (data, resp) = try await session.data(from: url)
             let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
             let raw = String(data: data, encoding: .utf8) ?? "(binary)"
-            log += "[/v1/playlists] status=\(status) body=\(raw.prefix(500))\n"
+            log += "[/v1/playlists] status=\(status) body=\(raw.prefix(800))\n"
 
             if status == 200 {
-                let decoder = JSONDecoder()
-                // Try as array of playlist nodes
+                // Try inline parsing first (items/children already populated)
                 if let nodes = try? decoder.decode([PlaylistNode].self, from: data) {
-                    let items = nodes.flatMap { $0.allPresentations() }
-                    if !items.isEmpty {
-                        log += "  -> parsed \(items.count) presentations from array\n"
-                        return (items, log)
+                    let inline = nodes.flatMap { $0.allPresentations() }
+                    if !inline.isEmpty {
+                        log += "  -> parsed \(inline.count) presentations inline\n"
+                        return (inline, log)
+                    }
+
+                    // Nodes found but no inline presentations — fetch each playlist individually
+                    let playlistUUIDs = nodes.compactMap { $0.id?.uuid }
+                    log += "  -> found \(playlistUUIDs.count) playlist UUIDs, fetching contents...\n"
+                    var all: [Presentation] = []
+                    for uuid in playlistUUIDs {
+                        let fetched = await fetchPlaylistContents(host: host, port: port, uuid: uuid, log: &log)
+                        all.append(contentsOf: fetched)
+                    }
+                    if !all.isEmpty {
+                        log += "  -> total \(all.count) presentations from individual playlists\n"
+                        return (all, log)
                     }
                 }
-                // Try as wrapper
                 if let wrapper = try? decoder.decode(PlaylistListWrapper.self, from: data),
                    let playlists = wrapper.playlists {
-                    let items = playlists.flatMap { $0.allPresentations() }
-                    if !items.isEmpty {
-                        log += "  -> parsed \(items.count) presentations from wrapper\n"
-                        return (items, log)
+                    let inline = playlists.flatMap { $0.allPresentations() }
+                    if !inline.isEmpty {
+                        log += "  -> parsed \(inline.count) presentations from wrapper\n"
+                        return (inline, log)
                     }
+                    let playlistUUIDs = playlists.compactMap { $0.id?.uuid }
+                    log += "  -> found \(playlistUUIDs.count) playlist UUIDs (wrapper), fetching...\n"
+                    var all: [Presentation] = []
+                    for uuid in playlistUUIDs {
+                        let fetched = await fetchPlaylistContents(host: host, port: port, uuid: uuid, log: &log)
+                        all.append(contentsOf: fetched)
+                    }
+                    if !all.isEmpty { return (all, log) }
                 }
-                // Try the data as a single playlist node
                 if let node = try? decoder.decode(PlaylistNode.self, from: data) {
                     let items = node.allPresentations()
                     if !items.isEmpty {
@@ -54,7 +73,7 @@ actor ProPresenterAPI {
                         return (items, log)
                     }
                 }
-                log += "  -> could not decode\n"
+                log += "  -> could not extract presentations\n"
             }
         } catch {
             log += "[/v1/playlists] error: \(error.localizedDescription)\n"
@@ -66,18 +85,30 @@ actor ProPresenterAPI {
             let (data, resp) = try await session.data(from: url)
             let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
             let raw = String(data: data, encoding: .utf8) ?? "(binary)"
-            log += "[/v1/playlist/active] status=\(status) body=\(raw.prefix(500))\n"
+            log += "[/v1/playlist/active] status=\(status) body=\(raw.prefix(800))\n"
 
             if status == 200 {
-                let decoder = JSONDecoder()
                 if let node = try? decoder.decode(PlaylistNode.self, from: data) {
                     let items = node.allPresentations()
                     if !items.isEmpty {
                         log += "  -> parsed \(items.count) presentations\n"
                         return (items, log)
                     }
+                    // Active playlist found but empty inline — try fetching by UUID
+                    if let uuid = node.id?.uuid {
+                        log += "  -> active playlist UUID=\(uuid), fetching contents...\n"
+                        let fetched = await fetchPlaylistContents(host: host, port: port, uuid: uuid, log: &log)
+                        if !fetched.isEmpty { return (fetched, log) }
+                    }
                 }
-                log += "  -> could not decode\n"
+                if let nodes = try? decoder.decode([PlaylistNode].self, from: data) {
+                    let items = nodes.flatMap { $0.allPresentations() }
+                    if !items.isEmpty {
+                        log += "  -> parsed \(items.count) presentations from array\n"
+                        return (items, log)
+                    }
+                }
+                log += "  -> could not extract presentations\n"
             }
         } catch {
             log += "[/v1/playlist/active] error: \(error.localizedDescription)\n"
@@ -89,10 +120,9 @@ actor ProPresenterAPI {
             let (data, resp) = try await session.data(from: url)
             let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
             let raw = String(data: data, encoding: .utf8) ?? "(binary)"
-            log += "[/v1/presentations] status=\(status) body=\(raw.prefix(500))\n"
+            log += "[/v1/presentations] status=\(status) body=\(raw.prefix(800))\n"
 
             if status == 200 {
-                let decoder = JSONDecoder()
                 if let items = try? decoder.decode([PresentationListItem].self, from: data) {
                     let result = items.map { Presentation(uuid: $0.id.uuid, name: $0.id.name, index: $0.id.index) }
                     if !result.isEmpty {
@@ -120,8 +150,42 @@ actor ProPresenterAPI {
             log += "[/v1/presentations] error: \(error.localizedDescription)\n"
         }
 
-        log += "All strategies failed.\n"
+        log += "All strategies exhausted.\n"
         return ([], log)
+    }
+
+    // MARK: - Fetch Individual Playlist Contents
+
+    private func fetchPlaylistContents(host: String, port: Int, uuid: String, log: inout String) async -> [Presentation] {
+        do {
+            let url = URL(string: "\(base(host, port))/v1/playlist/\(uuid)")!
+            let (data, resp) = try await session.data(from: url)
+            let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            let raw = String(data: data, encoding: .utf8) ?? "(binary)"
+            log += "  [/v1/playlist/\(uuid.prefix(8))...] status=\(status) body=\(raw.prefix(500))\n"
+
+            guard status == 200 else { return [] }
+
+            let decoder = JSONDecoder()
+            if let node = try? decoder.decode(PlaylistNode.self, from: data) {
+                let items = node.allPresentations()
+                if !items.isEmpty {
+                    log += "    -> \(items.count) presentations\n"
+                    return items
+                }
+            }
+            if let nodes = try? decoder.decode([PlaylistNode].self, from: data) {
+                let items = nodes.flatMap { $0.allPresentations() }
+                if !items.isEmpty {
+                    log += "    -> \(items.count) presentations from array\n"
+                    return items
+                }
+            }
+            log += "    -> could not extract presentations\n"
+        } catch {
+            log += "  [/v1/playlist/\(uuid.prefix(8))...] error: \(error.localizedDescription)\n"
+        }
+        return []
     }
 
     // MARK: - Active Presentation

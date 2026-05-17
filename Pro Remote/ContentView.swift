@@ -14,7 +14,7 @@ struct ContentView: View {
             SlideGridView()
         } detail: {
             NotesView()
-                .navigationSplitViewColumnWidth(min: 200, ideal: 300, max: 400)
+                .navigationSplitViewColumnWidth(min: 220, ideal: 320, max: 420)
         }
         .navigationSplitViewStyle(.balanced)
         .toolbar {
@@ -27,10 +27,20 @@ struct ContentView: View {
 
             ToolbarItem(placement: .automatic) {
                 Button {
+                    Task { await viewModel.refreshAll() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .help("Refresh")
+            }
+
+            ToolbarItem(placement: .automatic) {
+                Button {
                     viewModel.showSettings = true
                 } label: {
                     Image(systemName: "gear")
                 }
+                .help("Settings")
             }
 
             ToolbarItemGroup(placement: .automatic) {
@@ -76,15 +86,24 @@ private struct ConnectionStatusBadge: View {
         return "Offline"
     }
 
+    private var icon: String {
+        if isConnected && isWebSocketConnected { return "antenna.radiowaves.left.and.right" }
+        if isConnected { return "network" }
+        return "wifi.slash"
+    }
+
     var body: some View {
-        HStack(spacing: 4) {
-            Circle()
-                .fill(color)
-                .frame(width: 8, height: 8)
-            Text(label)
+        HStack(spacing: 5) {
+            Image(systemName: icon)
                 .font(.caption2)
+                .foregroundStyle(color)
+            Text(label)
+                .font(.caption2.weight(.medium))
                 .foregroundStyle(.secondary)
         }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(.quaternary.opacity(0.5), in: Capsule())
         .fixedSize()
     }
 }

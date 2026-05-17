@@ -87,25 +87,19 @@ struct PlaylistNode: Codable {
     func allPresentations() -> [Presentation] {
         var results: [Presentation] = []
 
-        // If this node has an id and looks like a presentation (leaf node)
-        if let nodeId = id,
-           type != "playlist" && type != "playlist_folder" && type != "folder",
-           items == nil && children == nil {
-            results.append(Presentation(uuid: nodeId.uuid, name: nodeId.name, index: nodeId.index))
-        }
-
-        // Recurse into items
-        if let items {
-            for item in items {
-                results.append(contentsOf: item.allPresentations())
+        if let nodeId = id {
+            let containerTypes: Set<String> = ["playlist", "playlist_folder", "folder", "group"]
+            let isContainer = type.map { containerTypes.contains($0.lowercased()) } ?? false
+            if !isContainer {
+                results.append(Presentation(uuid: nodeId.uuid, name: nodeId.name, index: nodeId.index))
             }
         }
 
-        // Recurse into children
-        if let children {
-            for child in children {
-                results.append(contentsOf: child.allPresentations())
-            }
+        for item in items ?? [] {
+            results.append(contentsOf: item.allPresentations())
+        }
+        for child in children ?? [] {
+            results.append(contentsOf: child.allPresentations())
         }
 
         return results
