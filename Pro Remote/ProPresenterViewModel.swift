@@ -125,9 +125,7 @@ final class ProPresenterViewModel {
                 try? await Task.sleep(for: .seconds(1))
                 guard !Task.isCancelled, let self else { return }
                 await self.fetchSlideStatus()
-                if self.isViewingLivePresentation {
-                    await self.fetchActivePresentation()
-                }
+                await self.fetchActivePresentation()
             }
         }
     }

@@ -8,30 +8,35 @@ struct SlideGridView: View {
     var body: some View {
         VStack(spacing: 0) {
             if let presentation = viewModel.selectedPresentation {
+                headerBar(for: presentation)
+
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVGrid(columns: columns, spacing: 8) {
+                        LazyVGrid(columns: columns, spacing: 6) {
                             ForEach(presentation.slides) { slide in
                                 SlideCell(
                                     slide: slide,
                                     thumbnailURL: viewModel.thumbnailURL(for: slide.index),
-                                    isLive: slide.index == viewModel.currentSlideIndex,
-                                    isNext: slide.index == viewModel.nextSlideIndex
+                                    isLive: viewModel.isViewingLivePresentation && slide.index == viewModel.liveSlideIndex
                                 ) {
                                     Task { await viewModel.triggerSlide(at: slide.index) }
                                 }
                                 .id(slide.index)
                             }
                         }
-                        .padding(8)
+                        .padding(6)
                     }
-                    .background(Color(white: 0.14))
+                    .background(Color(white: 0.12))
                     .onAppear {
-                        proxy.scrollTo(viewModel.currentSlideIndex, anchor: .center)
+                        if viewModel.isViewingLivePresentation {
+                            proxy.scrollTo(viewModel.liveSlideIndex, anchor: .center)
+                        }
                     }
-                    .onChange(of: viewModel.currentSlideIndex) { _, newIndex in
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            proxy.scrollTo(newIndex, anchor: .center)
+                    .onChange(of: viewModel.liveSlideIndex) { _, newIndex in
+                        if viewModel.isViewingLivePresentation {
+                            withAnimation(.easeInOut(duration: 0.3)) {
+                                proxy.scrollTo(newIndex, anchor: .center)
+                            }
                         }
                     }
                 }
@@ -45,48 +50,74 @@ struct SlideGridView: View {
                 }
             }
         }
-        .navigationTitle(viewModel.selectedPresentation?.name ?? "Slides")
+        .navigationTitle("")
         #if os(macOS)
-        .navigationSubtitle(
-            viewModel.selectedPresentation.map { "\($0.slides.count) slides" } ?? ""
-        )
+        .navigationSubtitle("")
         #endif
+    }
+
+    private func headerBar(for presentation: Presentation) -> some View {
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(presentation.name)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+                Text("\(presentation.slides.count) slides")
+                    .font(.system(size: 10))
+                    .foregroundColor(Color(white: 0.45))
+            }
+
+            Spacer()
+
+            if viewModel.isViewingLivePresentation {
+                Text("LIVE")
+                    .font(.system(size: 9, weight: .heavy))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(ProPresenterViewModel.liveColor, in: Capsule())
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Color(white: 0.09))
     }
 
     private var transportBar: some View {
         HStack {
             Spacer()
-            HStack(spacing: 12) {
+            HStack(spacing: 16) {
                 Button { Task { await viewModel.triggerSlide(at: 0) } } label: {
                     Image(systemName: "backward.end.fill")
-                        .font(.system(size: 12))
-                        .foregroundColor(Color(white: 0.55))
-                        .frame(width: 28, height: 28)
+                        .font(.system(size: 11))
+                        .foregroundColor(Color(white: 0.5))
+                        .frame(width: 24, height: 24)
                 }
                 .buttonStyle(.plain)
 
                 Button { Task { await viewModel.triggerPrevious() } } label: {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(Color(white: 0.55))
-                        .frame(width: 28, height: 28)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(Color(white: 0.5))
+                        .frame(width: 24, height: 24)
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut(.leftArrow, modifiers: .command)
 
-                if let slide = viewModel.currentSlide,
+                if viewModel.isViewingLivePresentation,
                    let total = viewModel.selectedPresentation?.slides.count {
-                    Text("\(slide.index + 1) / \(total)")
+                    Text("\(viewModel.liveSlideIndex + 1) / \(total)")
                         .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundColor(Color(white: 0.45))
+                        .foregroundColor(Color(white: 0.4))
                         .frame(minWidth: 44)
                 }
 
                 Button { Task { await viewModel.triggerNext() } } label: {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(Color(white: 0.55))
-                        .frame(width: 28, height: 28)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(Color(white: 0.5))
+                        .frame(width: 24, height: 24)
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut(.rightArrow, modifiers: .command)
@@ -97,16 +128,16 @@ struct SlideGridView: View {
                     }
                 } label: {
                     Image(systemName: "forward.end.fill")
-                        .font(.system(size: 12))
-                        .foregroundColor(Color(white: 0.55))
-                        .frame(width: 28, height: 28)
+                        .font(.system(size: 11))
+                        .foregroundColor(Color(white: 0.5))
+                        .frame(width: 24, height: 24)
                 }
                 .buttonStyle(.plain)
             }
             Spacer()
         }
-        .frame(height: 30)
-        .background(Color(white: 0.09))
+        .frame(height: 28)
+        .background(Color(white: 0.07))
     }
 }
 
@@ -116,20 +147,9 @@ private struct SlideCell: View {
     let slide: Slide
     let thumbnailURL: URL?
     let isLive: Bool
-    let isNext: Bool
     let onTap: () -> Void
 
     @State private var isHovered = false
-
-    private var borderColor: Color {
-        if isLive { return ProPresenterViewModel.liveColor }
-        return Color(white: 0.28)
-    }
-
-    private var borderWidth: CGFloat {
-        if isLive { return 3 }
-        return 1
-    }
 
     var body: some View {
         Button(action: onTap) {
@@ -140,46 +160,53 @@ private struct SlideCell: View {
                         .aspectRatio(16 / 9, contentMode: .fit)
                 } placeholder: {
                     Rectangle()
-                        .fill(Color(white: 0.18))
+                        .fill(Color(white: 0.15))
                         .aspectRatio(16 / 9, contentMode: .fit)
+                        .overlay {
+                            if !slide.text.isEmpty {
+                                Text(slide.text)
+                                    .font(.system(size: 10))
+                                    .foregroundColor(Color(white: 0.4))
+                                    .multilineTextAlignment(.center)
+                                    .lineLimit(4)
+                                    .padding(8)
+                            }
+                        }
                 }
 
-                // Info area — medium gray like ProPresenter
-                VStack(alignment: .leading, spacing: 1) {
-                    if !slide.groupName.isEmpty {
-                        Text(slide.groupName + ":")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(Color(white: 0.7))
-                    }
-                    if !slide.text.isEmpty {
-                        Text(slide.text)
-                            .font(.system(size: 9.5))
-                            .foregroundColor(Color(white: 0.55))
-                            .lineLimit(3)
-                            .multilineTextAlignment(.leading)
+                HStack(spacing: 4) {
+                    if let color = slide.groupColor {
+                        RoundedRectangle(cornerRadius: 1)
+                            .fill(color)
+                            .frame(width: 3, height: 12)
                     }
 
-                    HStack {
-                        Spacer()
-                        Text("\(slide.index + 1)")
-                            .font(.system(size: 9, weight: .medium, design: .monospaced))
-                            .foregroundColor(Color(white: 0.45))
-                    }
-                    .padding(.top, 1)
+                    Text(slide.groupName.isEmpty ? "Slide \(slide.index + 1)" : slide.groupName)
+                        .font(.system(size: 9.5, weight: .medium))
+                        .foregroundColor(Color(white: 0.6))
+                        .lineLimit(1)
+
+                    Spacer(minLength: 0)
+
+                    Text("\(slide.index + 1)")
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundColor(Color(white: 0.4))
                 }
-                .padding(.horizontal, 6)
-                .padding(.top, 4)
-                .padding(.bottom, 3)
-                .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
-                .background(Color(white: 0.22))
+                .padding(.horizontal, 5)
+                .padding(.vertical, 4)
+                .frame(maxWidth: .infinity)
+                .background(Color(white: 0.18))
             }
-            .clipShape(RoundedRectangle(cornerRadius: 3))
+            .clipShape(RoundedRectangle(cornerRadius: 4))
             .overlay(
-                RoundedRectangle(cornerRadius: 3)
-                    .strokeBorder(borderColor, lineWidth: borderWidth)
+                RoundedRectangle(cornerRadius: 4)
+                    .strokeBorder(
+                        isLive ? ProPresenterViewModel.liveColor : Color(white: 0.25),
+                        lineWidth: isLive ? 2.5 : 0.5
+                    )
             )
-            .scaleEffect(isHovered ? 1.02 : 1.0)
-            .animation(.easeOut(duration: 0.12), value: isHovered)
+            .opacity(isHovered ? 0.85 : 1.0)
+            .animation(.easeOut(duration: 0.1), value: isHovered)
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
