@@ -56,55 +56,6 @@ struct SlideGridView: View {
         #endif
     }
 
-    private var presentationPicker: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 2) {
-                    ForEach(viewModel.playlistItems) { item in
-                        let isSelected = item.uuid == viewModel.selectedPresentation?.uuid
-                        let isLive = item.uuid == viewModel.livePresentationUUID
-
-                        Button {
-                            Task { await viewModel.selectPresentation(item) }
-                        } label: {
-                            HStack(spacing: 4) {
-                                Text(item.name)
-                                    .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
-                                    .foregroundColor(isSelected ? .white : Color(white: 0.6))
-                                    .lineLimit(1)
-
-                                if isLive {
-                                    Text("LIVE")
-                                        .font(.system(size: 7, weight: .heavy))
-                                        .foregroundStyle(.white)
-                                        .padding(.horizontal, 4)
-                                        .padding(.vertical, 1)
-                                        .background(ProPresenterViewModel.liveColor, in: Capsule())
-                                }
-                            }
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 5)
-                            .background(isSelected ? Color(white: 0.22) : Color.clear, in: RoundedRectangle(cornerRadius: 4))
-                        }
-                        .buttonStyle(.plain)
-                        .id(item.uuid)
-                    }
-                }
-                .padding(.horizontal, 6)
-            }
-            .frame(height: 30)
-            .background(Color(white: 0.09))
-            .onAppear {
-                proxy.scrollTo(viewModel.selectedPresentation?.uuid, anchor: .center)
-            }
-            .onChange(of: viewModel.selectedPresentation?.uuid) { _, newUUID in
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    proxy.scrollTo(newUUID, anchor: .center)
-                }
-            }
-        }
-    }
-
     private func headerBar(for presentation: Presentation) -> some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 1) {
