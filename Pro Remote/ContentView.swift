@@ -13,6 +13,26 @@ struct ContentView: View {
         } detail: {
             SlideGridView()
         }
+        .focusable()
+        .focusEffectDisabled()
+        .onKeyPress(keys: [.leftArrow, .rightArrow, .upArrow, .downArrow]) { press in
+            switch press.key {
+            case .rightArrow:
+                Task { await viewModel.triggerNext() }
+                return .handled
+            case .leftArrow:
+                Task { await viewModel.triggerPrevious() }
+                return .handled
+            case .downArrow:
+                Task { await viewModel.selectNextPresentation() }
+                return .handled
+            case .upArrow:
+                Task { await viewModel.selectPreviousPresentation() }
+                return .handled
+            default:
+                return .ignored
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .automatic) {
                 ConnectionStatusBadge(

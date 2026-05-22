@@ -15,6 +15,25 @@ actor ProPresenterAPI {
         "http://\(host):\(port)"
     }
 
+    // MARK: - Playlists
+
+    func fetchPlaylists(host: String, port: Int) async throws -> [Playlist] {
+        let url = URL(string: "\(base(host, port))/v1/playlists")!
+        let (data, _) = try await session.data(from: url)
+        let nodes = try JSONDecoder().decode([PlaylistNode].self, from: data)
+        return nodes.compactMap { node in
+            guard let id = node.id else { return nil }
+            return Playlist(uuid: id.uuid, name: id.name)
+        }
+    }
+
+    func fetchPlaylistItems(host: String, port: Int, uuid: String) async throws -> [Presentation] {
+        let url = URL(string: "\(base(host, port))/v1/playlist/\(uuid)")!
+        let (data, _) = try await session.data(from: url)
+        let node = try JSONDecoder().decode(PlaylistNode.self, from: data)
+        return node.allPresentations()
+    }
+
     // MARK: - Fetch sidebar items (tries multiple strategies)
 
     func fetchSidebarItems(host: String, port: Int) async -> (items: [Presentation], debugLog: String) {
@@ -213,31 +232,28 @@ actor ProPresenterAPI {
 
     // MARK: - Slide Status
 
-    func fetchSlideStatus(host: String, port: Int) async throws -> (slideIndex: Int, presentationUUID: String?) {
-        let url = URL(string: "\(base(host, port))/v1/status/slide")!
+    func fetchSlideIndex(host: String, port: Int) async throws -> (slideIndex: Int, presentationUUID: String?) {
+        let url = URL(string: "\(base(host, port))/v1/presentation/slide_index")!
         let (data, _) = try await session.data(from: url)
-        let r = try JSONDecoder().decode(SlideStatusPayload.self, from: data)
-        return (r.current?.slideIndex ?? 0, r.current?.presentationIndex?.presentationId?.uuid)
+        let r = try JSONDecoder().decode(SlideIndexPayload.self, from: data)
+        return (r.presentationIndex?.index ?? 0, r.presentationIndex?.presentationId?.uuid)
     }
 
     // MARK: - Triggers
 
     func triggerNext(host: String, port: Int) async throws {
-        var req = URLRequest(url: URL(string: "\(base(host, port))/v1/trigger/next")!)
-        req.httpMethod = "POST"
-        _ = try await session.data(for: req)
+        let url = URL(string: "\(base(host, port))/v1/trigger/next")!
+        _ = try await session.data(from: url)
     }
 
     func triggerPrevious(host: String, port: Int) async throws {
-        var req = URLRequest(url: URL(string: "\(base(host, port))/v1/trigger/previous")!)
-        req.httpMethod = "POST"
-        _ = try await session.data(for: req)
+        let url = URL(string: "\(base(host, port))/v1/trigger/previous")!
+        _ = try await session.data(from: url)
     }
 
     func triggerSlide(host: String, port: Int, uuid: String, index: Int) async throws {
-        var req = URLRequest(url: URL(string: "\(base(host, port))/v1/presentation/\(uuid)/trigger/\(index)")!)
-        req.httpMethod = "POST"
-        _ = try await session.data(for: req)
+        let url = URL(string: "\(base(host, port))/v1/presentation/\(uuid)/trigger/\(index)")!
+        _ = try await session.data(from: url)
     }
 
     // MARK: - Thumbnails
@@ -249,7 +265,7 @@ actor ProPresenterAPI {
     // MARK: - Connection Test
 
     func testConnection(host: String, port: Int) async throws -> Bool {
-        let url = URL(string: "\(base(host, port))/v1/status/slide")!
+        let url = URL(string: "\(base(host, port))/v1/presentation/slide_index")!
         let (_, resp) = try await session.data(from: url)
         return (resp as? HTTPURLResponse)?.statusCode == 200
     }
@@ -267,6 +283,7 @@ actor ProPresenterAPI {
                 slides.append(Slide(
                     id: idx,
                     text: s.text,
+                    label: s.label ?? "",
                     notes: s.notes,
                     enabled: s.enabled,
                     groupName: group.name,

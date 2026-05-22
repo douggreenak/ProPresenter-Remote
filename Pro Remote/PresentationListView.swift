@@ -6,47 +6,34 @@ struct PresentationListView: View {
     var body: some View {
         VStack(spacing: 0) {
             List(selection: Binding<String?>(
-                get: { viewModel.selectedPresentation?.uuid },
+                get: { viewModel.selectedPlaylist?.uuid },
                 set: { uuid in
                     guard let uuid,
-                          let pres = viewModel.presentations.first(where: { $0.uuid == uuid })
+                          let playlist = viewModel.playlists.first(where: { $0.uuid == uuid })
                     else { return }
-                    Task { await viewModel.selectPresentation(pres) }
+                    Task { await viewModel.selectPlaylist(playlist) }
                 }
             )) {
-                ForEach(viewModel.presentations) { presentation in
-                    HStack(spacing: 0) {
-                        Text(presentation.name)
-                            .lineLimit(2)
-
-                        Spacer(minLength: 6)
-
-                        if presentation.uuid == viewModel.livePresentationUUID {
-                            Text("LIVE")
-                                .font(.system(size: 9, weight: .heavy))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 2)
-                                .background(ProPresenterViewModel.liveColor, in: Capsule())
-                        }
-                    }
-                    .tag(presentation.uuid)
+                ForEach(viewModel.playlists) { playlist in
+                    Text(playlist.name)
+                        .lineLimit(2)
+                        .tag(playlist.uuid)
                 }
             }
             .listStyle(.sidebar)
 
-            if let selected = viewModel.selectedPresentation, !selected.slides.isEmpty {
-                SlideCueList(
-                    presentation: selected,
-                    currentSlideIndex: viewModel.liveSlideIndex,
-                    isLivePresentation: selected.uuid == viewModel.livePresentationUUID,
-                    onTrigger: { index in
-                        Task { await viewModel.triggerSlide(at: index) }
+            if !viewModel.playlistItems.isEmpty {
+                PlaylistItemList(
+                    items: viewModel.playlistItems,
+                    selectedUUID: viewModel.selectedPresentation?.uuid,
+                    liveUUID: viewModel.livePresentationUUID,
+                    onSelect: { item in
+                        Task { await viewModel.selectPresentation(item) }
                     }
                 )
             }
 
-            if viewModel.presentations.isEmpty && !viewModel.isConnected {
+            if viewModel.playlists.isEmpty && !viewModel.isConnected {
                 ContentUnavailableView {
                     Label("Not Connected", systemImage: "wifi.slash")
                 } description: {
@@ -62,89 +49,74 @@ struct PresentationListView: View {
         .refreshable {
             await viewModel.refreshAll()
         }
-        .navigationTitle("Presentations")
+        .navigationTitle("Playlists")
     }
 }
 
-// MARK: - Slide Cue List
+// MARK: - Playlist Item List
 
-private struct SlideCueList: View {
-    let presentation: Presentation
-    let currentSlideIndex: Int
-    let isLivePresentation: Bool
-    let onTrigger: (Int) -> Void
+private struct PlaylistItemList: View {
+    let items: [Presentation]
+    let selectedUUID: String?
+    let liveUUID: String
+    let onSelect: (Presentation) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
             Divider()
 
-            HStack {
-                Text(presentation.name)
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.6))
-                Spacer()
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
-            .background(Color(white: 0.13))
-
-            Divider()
-
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ForEach(presentation.slides) { slide in
-                            let isLive = isLivePresentation && slide.index == currentSlideIndex
+                        ForEach(Array(items.enumerated()), id: \.element.uuid) { index, item in
+                            let isSelected = item.uuid == selectedUUID
+                            let isLive = item.uuid == liveUUID
 
-                            Button { onTrigger(slide.index) } label: {
+                            Button { onSelect(item) } label: {
                                 HStack(spacing: 0) {
-                                    // Group color bar
-                                    RoundedRectangle(cornerRadius: 1)
-                                        .fill(slide.groupColor ?? Color.gray.opacity(0.4))
-                                        .frame(width: 3, height: 14)
+                                    Text("\(index + 1)")
+                                        .font(.system(size: 11, design: .monospaced))
+                                        .foregroundColor(isSelected ? .white : Color(white: 0.45))
+                                        .frame(width: 22, alignment: .trailing)
                                         .padding(.leading, 4)
 
-                                    // Slide number
-                                    Text("\(slide.index + 1)")
-                                        .font(.system(size: 12, design: .monospaced))
-                                        .foregroundColor(isLive ? .white : Color(white: 0.5))
-                                        .frame(width: 26, alignment: .trailing)
-                                        .padding(.leading, 4)
-
-                                    // Slide text
-                                    Text(slideLabel(slide))
-                                        .font(.system(size: 12))
-                                        .foregroundColor(isLive ? .white : Color(white: 0.85))
+                                    Text(item.name)
+                                        .font(.system(size: 11.5))
+                                        .foregroundColor(isSelected ? .white : Color(white: 0.8))
                                         .lineLimit(1)
                                         .padding(.leading, 6)
 
-                                    Spacer(minLength: 0)
+                                    Spacer(minLength: 4)
+
+                                    if isLive {
+                                        Text("LIVE")
+                                            .font(.system(size: 7, weight: .heavy))
+                                            .foregroundStyle(.white)
+                                            .padding(.horizontal, 4)
+                                            .padding(.vertical, 1)
+                                            .background(ProPresenterViewModel.liveColor, in: Capsule())
+                                            .padding(.trailing, 6)
+                                    }
                                 }
                                 .frame(height: 22)
                                 .frame(maxWidth: .infinity)
-                                .background(isLive ? ProPresenterViewModel.liveColor : Color.clear)
+                                .background(isSelected ? Color(white: 0.25) : Color.clear)
                             }
                             .buttonStyle(.plain)
-                            .id(slide.index)
+                            .id(item.uuid)
                         }
                     }
                 }
                 .onAppear {
-                    proxy.scrollTo(currentSlideIndex, anchor: .center)
+                    proxy.scrollTo(selectedUUID, anchor: .center)
                 }
-                .onChange(of: currentSlideIndex) { _, newIndex in
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        proxy.scrollTo(newIndex, anchor: .center)
+                .onChange(of: selectedUUID) { _, newUUID in
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        proxy.scrollTo(newUUID, anchor: .center)
                     }
                 }
             }
         }
         .background(Color(white: 0.08))
-    }
-
-    private func slideLabel(_ slide: Slide) -> String {
-        if !slide.text.isEmpty { return slide.text }
-        if !slide.groupName.isEmpty { return slide.groupName }
-        return "Slide \(slide.index + 1)"
     }
 }

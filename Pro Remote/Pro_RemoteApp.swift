@@ -28,6 +28,18 @@ struct Pro_RemoteApp: App {
 
                 Divider()
 
+                Button("Next Presentation") {
+                    Task { await viewModel.selectNextPresentation() }
+                }
+                .keyboardShortcut(.downArrow, modifiers: .command)
+
+                Button("Previous Presentation") {
+                    Task { await viewModel.selectPreviousPresentation() }
+                }
+                .keyboardShortcut(.upArrow, modifiers: .command)
+
+                Divider()
+
                 Button("Refresh All") {
                     Task { await viewModel.refreshAll() }
                 }

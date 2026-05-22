@@ -8,7 +8,9 @@ final class ProPresenterViewModel {
 
     static let liveColor = Color(red: 0.91, green: 0.41, blue: 0.15)
 
-    var presentations: [Presentation] = []
+    var playlists: [Playlist] = []
+    var selectedPlaylist: Playlist?
+    var playlistItems: [Presentation] = []
     var selectedPresentation: Presentation?
     var liveSlideIndex: Int = 0
     var livePresentationUUID: String = ""
@@ -65,8 +67,8 @@ final class ProPresenterViewModel {
         port = UserDefaults.standard.string(forKey: "pp_port") ?? "1025"
         companionButtons = Self.loadCompanionButtons()
 
-        webSocket.onSlideUpdate = { [weak self] index, uuid in
-            self?.handleSlideUpdate(index: index, uuid: uuid)
+        webSocket.onSlideChanged = { [weak self] in
+            Task { await self?.fetchSlideStatus() }
         }
         webSocket.onConnectionChange = { [weak self] connected in
             self?.isWebSocketConnected = connected
@@ -102,7 +104,9 @@ final class ProPresenterViewModel {
         pollTask = nil
         webSocket.disconnect()
         isConnected = false
-        presentations = []
+        playlists = []
+        selectedPlaylist = nil
+        playlistItems = []
         selectedPresentation = nil
     }
 
@@ -133,16 +137,28 @@ final class ProPresenterViewModel {
     // MARK: - Data Loading
 
     func refreshAll() async {
-        await fetchPresentations()
+        await fetchPlaylists()
         await fetchActivePresentation()
         await fetchSlideStatus()
     }
 
-    func fetchPresentations() async {
-        let result = await api.fetchSidebarItems(host: host, port: portInt)
-        apiDebugLog = result.debugLog
-        if !result.items.isEmpty {
-            presentations = result.items
+    func fetchPlaylists() async {
+        guard let fetched = try? await api.fetchPlaylists(host: host, port: portInt) else { return }
+        playlists = fetched
+    }
+
+    func selectPlaylist(_ playlist: Playlist) async {
+        if playlist.uuid == selectedPlaylist?.uuid { return }
+        selectedPlaylist = playlist
+        guard let items = try? await api.fetchPlaylistItems(host: host, port: portInt, uuid: playlist.uuid) else {
+            playlistItems = []
+            return
+        }
+        playlistItems = items
+        if let live = items.first(where: { $0.uuid == livePresentationUUID }) {
+            await selectPresentation(live)
+        } else if let first = items.first {
+            await selectPresentation(first)
         }
     }
 
@@ -153,13 +169,20 @@ final class ProPresenterViewModel {
         if wasViewingLive {
             selectedPresentation = active
         }
-        if !presentations.contains(where: { $0.uuid == active.uuid }) {
-            presentations.append(Presentation(uuid: active.uuid, name: active.name, index: active.index))
+        if selectedPlaylist == nil {
+            for playlist in playlists {
+                if let items = try? await api.fetchPlaylistItems(host: host, port: portInt, uuid: playlist.uuid),
+                   items.contains(where: { $0.uuid == active.uuid }) {
+                    selectedPlaylist = playlist
+                    playlistItems = items
+                    break
+                }
+            }
         }
     }
 
     func fetchSlideStatus() async {
-        guard let status = try? await api.fetchSlideStatus(host: host, port: portInt) else { return }
+        guard let status = try? await api.fetchSlideIndex(host: host, port: portInt) else { return }
         let previousUUID = livePresentationUUID
         liveSlideIndex = status.slideIndex
         if let uuid = status.presentationUUID {
@@ -189,14 +212,31 @@ final class ProPresenterViewModel {
         liveSlideIndex = index
         livePresentationUUID = pres.uuid
         try? await api.triggerSlide(host: host, port: portInt, uuid: pres.uuid, index: index)
+        await fetchSlideStatus()
     }
 
     func triggerNext() async {
         try? await api.triggerNext(host: host, port: portInt)
+        await fetchSlideStatus()
     }
 
     func triggerPrevious() async {
         try? await api.triggerPrevious(host: host, port: portInt)
+        await fetchSlideStatus()
+    }
+
+    func selectNextPresentation() async {
+        guard let current = selectedPresentation,
+              let idx = playlistItems.firstIndex(where: { $0.uuid == current.uuid }),
+              idx + 1 < playlistItems.count else { return }
+        await selectPresentation(playlistItems[idx + 1])
+    }
+
+    func selectPreviousPresentation() async {
+        guard let current = selectedPresentation,
+              let idx = playlistItems.firstIndex(where: { $0.uuid == current.uuid }),
+              idx > 0 else { return }
+        await selectPresentation(playlistItems[idx - 1])
     }
 
     func thumbnailURL(for index: Int) -> URL? {
@@ -207,16 +247,6 @@ final class ProPresenterViewModel {
     func triggerCompanionButton(_ button: CompanionButton) async {
         guard let url = button.url else { return }
         _ = try? await URLSession.shared.data(from: url)
-    }
-
-    // MARK: - WebSocket Handler
-
-    private func handleSlideUpdate(index: Int, uuid: String) {
-        liveSlideIndex = index
-        if !uuid.isEmpty && uuid != livePresentationUUID {
-            livePresentationUUID = uuid
-            Task { await fetchActivePresentation() }
-        }
     }
 
     // MARK: - Persistence

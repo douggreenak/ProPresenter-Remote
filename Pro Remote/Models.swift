@@ -45,19 +45,25 @@ struct SlidePayload: Codable {
     let enabled: Bool
     let notes: String
     let text: String
+    let label: String?
 }
 
 struct SlideStatusPayload: Codable {
-    let current: CurrentSlidePayload?
+    let current: SlideStatusItem?
+    let next: SlideStatusItem?
 }
 
-struct CurrentSlidePayload: Codable {
+struct SlideStatusItem: Codable {
+    let text: String?
+    let notes: String?
+    let uuid: String?
+}
+
+struct SlideIndexPayload: Codable {
     let presentationIndex: PresentationIndexPayload?
-    let slideIndex: Int
 
     enum CodingKeys: String, CodingKey {
         case presentationIndex = "presentation_index"
-        case slideIndex = "slide_index"
     }
 }
 
@@ -80,29 +86,68 @@ struct PresentationListWrapper: Codable {
 struct PlaylistNode: Codable {
     let id: PresentationIdentifier?
     let type: String?
-    let items: [PlaylistNode]?
+    let fieldType: String?
+    let items: [PlaylistItem]?
     let children: [PlaylistNode]?
     let name: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, type, items, children, name
+        case fieldType = "field_type"
+    }
+
+    var isContainer: Bool {
+        let containerTypes: Set<String> = ["playlist", "playlist_folder", "folder", "group"]
+        let nodeType = fieldType ?? type
+        return nodeType.map { containerTypes.contains($0.lowercased()) } ?? (items != nil || children != nil)
+    }
 
     func allPresentations() -> [Presentation] {
         var results: [Presentation] = []
 
-        if let nodeId = id {
-            let containerTypes: Set<String> = ["playlist", "playlist_folder", "folder", "group"]
-            let isContainer = type.map { containerTypes.contains($0.lowercased()) } ?? false
-            if !isContainer {
-                results.append(Presentation(uuid: nodeId.uuid, name: nodeId.name, index: nodeId.index))
+        if let items {
+            for item in items {
+                if let pres = item.asPresentation() {
+                    results.append(pres)
+                }
             }
         }
 
-        for item in items ?? [] {
-            results.append(contentsOf: item.allPresentations())
+        if !isContainer, let nodeId = id {
+            results.append(Presentation(uuid: nodeId.uuid, name: nodeId.name, index: nodeId.index))
         }
+
         for child in children ?? [] {
             results.append(contentsOf: child.allPresentations())
         }
 
         return results
+    }
+}
+
+struct PlaylistItem: Codable {
+    let id: PresentationIdentifier?
+    let type: String?
+    let presentationInfo: PlaylistPresentationInfo?
+    let destination: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, type, destination
+        case presentationInfo = "presentation_info"
+    }
+
+    func asPresentation() -> Presentation? {
+        guard let id else { return nil }
+        let uuid = presentationInfo?.presentationUUID ?? id.uuid
+        return Presentation(uuid: uuid, name: id.name, index: id.index)
+    }
+}
+
+struct PlaylistPresentationInfo: Codable {
+    let presentationUUID: String?
+
+    enum CodingKeys: String, CodingKey {
+        case presentationUUID = "presentation_uuid"
     }
 }
 
@@ -138,6 +183,7 @@ struct Presentation: Identifiable, Hashable {
 struct Slide: Identifiable, Hashable {
     let id: Int
     let text: String
+    let label: String
     let notes: String
     let enabled: Bool
     let groupName: String
@@ -145,13 +191,33 @@ struct Slide: Identifiable, Hashable {
 
     var index: Int { id }
 
-    init(id: Int, text: String, notes: String, enabled: Bool, groupName: String, groupColor: Color? = nil) {
+    var displayText: String {
+        if !text.isEmpty { return text }
+        if !label.isEmpty { return label }
+        return ""
+    }
+
+    init(id: Int, text: String, label: String = "", notes: String, enabled: Bool, groupName: String, groupColor: Color? = nil) {
         self.id = id
         self.text = text
+        self.label = label
         self.notes = notes
         self.enabled = enabled
         self.groupName = groupName
         self.groupColor = groupColor
+    }
+}
+
+struct Playlist: Identifiable, Hashable {
+    var id: String { uuid }
+    let uuid: String
+    let name: String
+    var items: [Presentation]
+
+    init(uuid: String, name: String, items: [Presentation] = []) {
+        self.uuid = uuid
+        self.name = name
+        self.items = items
     }
 }
 

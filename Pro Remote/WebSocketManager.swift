@@ -9,7 +9,7 @@ final class WebSocketManager {
     private var host = ""
     private var port = 1025
 
-    var onSlideUpdate: ((_ slideIndex: Int, _ presentationUUID: String) -> Void)?
+    var onSlideChanged: (() -> Void)?
     var onConnectionChange: ((_ connected: Bool) -> Void)?
 
     func connect(host: String, port: Int) {
@@ -55,19 +55,7 @@ final class WebSocketManager {
     }
 
     private func handle(_ message: URLSessionWebSocketTask.Message) {
-        let data: Data?
-        switch message {
-        case .string(let text): data = text.data(using: .utf8)
-        case .data(let d): data = d
-        @unknown default: data = nil
-        }
-        guard let data else { return }
-
-        if let status = try? JSONDecoder().decode(SlideStatusPayload.self, from: data),
-           let current = status.current {
-            let uuid = current.presentationIndex?.presentationId?.uuid ?? ""
-            onSlideUpdate?(current.slideIndex, uuid)
-        }
+        onSlideChanged?()
     }
 
     private func scheduleReconnect() {

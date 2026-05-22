@@ -7,7 +7,7 @@ struct SlideGridView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if let presentation = viewModel.selectedPresentation {
+            if let presentation = viewModel.selectedPresentation, !presentation.slides.isEmpty {
                 headerBar(for: presentation)
 
                 ScrollViewReader { proxy in
@@ -46,7 +46,7 @@ struct SlideGridView: View {
                 ContentUnavailableView {
                     Label("No Presentation", systemImage: "rectangle.on.rectangle.slash")
                 } description: {
-                    Text("Select a presentation from the sidebar.")
+                    Text("Select a playlist and presentation from the sidebar.")
                 }
             }
         }
@@ -54,6 +54,55 @@ struct SlideGridView: View {
         #if os(macOS)
         .navigationSubtitle("")
         #endif
+    }
+
+    private var presentationPicker: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 2) {
+                    ForEach(viewModel.playlistItems) { item in
+                        let isSelected = item.uuid == viewModel.selectedPresentation?.uuid
+                        let isLive = item.uuid == viewModel.livePresentationUUID
+
+                        Button {
+                            Task { await viewModel.selectPresentation(item) }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text(item.name)
+                                    .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
+                                    .foregroundColor(isSelected ? .white : Color(white: 0.6))
+                                    .lineLimit(1)
+
+                                if isLive {
+                                    Text("LIVE")
+                                        .font(.system(size: 7, weight: .heavy))
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 4)
+                                        .padding(.vertical, 1)
+                                        .background(ProPresenterViewModel.liveColor, in: Capsule())
+                                }
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .background(isSelected ? Color(white: 0.22) : Color.clear, in: RoundedRectangle(cornerRadius: 4))
+                        }
+                        .buttonStyle(.plain)
+                        .id(item.uuid)
+                    }
+                }
+                .padding(.horizontal, 6)
+            }
+            .frame(height: 30)
+            .background(Color(white: 0.09))
+            .onAppear {
+                proxy.scrollTo(viewModel.selectedPresentation?.uuid, anchor: .center)
+            }
+            .onChange(of: viewModel.selectedPresentation?.uuid) { _, newUUID in
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    proxy.scrollTo(newUUID, anchor: .center)
+                }
+            }
+        }
     }
 
     private func headerBar(for presentation: Presentation) -> some View {
@@ -103,7 +152,6 @@ struct SlideGridView: View {
                         .frame(width: 24, height: 24)
                 }
                 .buttonStyle(.plain)
-                .keyboardShortcut(.leftArrow, modifiers: .command)
 
                 if viewModel.isViewingLivePresentation,
                    let total = viewModel.selectedPresentation?.slides.count {
@@ -120,7 +168,6 @@ struct SlideGridView: View {
                         .frame(width: 24, height: 24)
                 }
                 .buttonStyle(.plain)
-                .keyboardShortcut(.rightArrow, modifiers: .command)
 
                 Button {
                     if let last = viewModel.selectedPresentation?.slides.last {
@@ -163,8 +210,8 @@ private struct SlideCell: View {
                         .fill(Color(white: 0.15))
                         .aspectRatio(16 / 9, contentMode: .fit)
                         .overlay {
-                            if !slide.text.isEmpty {
-                                Text(slide.text)
+                            if !slide.displayText.isEmpty {
+                                Text(slide.displayText)
                                     .font(.system(size: 10))
                                     .foregroundColor(Color(white: 0.4))
                                     .multilineTextAlignment(.center)
