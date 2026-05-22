@@ -22,7 +22,7 @@ struct NotesView: View {
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
 
-                    if let url = viewModel.thumbnailURL(for: slide.index) {
+                    if let url = viewModel.thumbnailURL(for: slide.thumbnailIndex) {
                         AsyncImage(url: url) { image in
                             image.resizable().aspectRatio(16 / 9, contentMode: .fit)
                         } placeholder: {
@@ -46,7 +46,8 @@ struct NotesView: View {
                         .padding(.top, 6)
                         .padding(.bottom, 4)
 
-                        if let url = viewModel.thumbnailURL(for: nextIndex) {
+                        if let nextSlide = viewModel.selectedPresentation?.slides[safe: nextIndex],
+                           let url = viewModel.thumbnailURL(for: nextSlide.thumbnailIndex) {
                             AsyncImage(url: url) { image in
                                 image.resizable().aspectRatio(16 / 9, contentMode: .fit)
                             } placeholder: {

@@ -14,12 +14,11 @@ final class ProPresenterViewModel {
     var selectedPresentation: Presentation?
     var liveSlideIndex: Int = 0
     var livePresentationUUID: String = ""
+    private var userOverrodeSelection: Bool = false
     var isConnected: Bool = false
     var isWebSocketConnected: Bool = false
     var connectionError: String?
     var showSettings: Bool = false
-    var apiDebugLog: String = ""
-
     var host: String {
         didSet { UserDefaults.standard.set(host, forKey: "pp_host") }
     }
@@ -129,7 +128,6 @@ final class ProPresenterViewModel {
                 try? await Task.sleep(for: .seconds(1))
                 guard !Task.isCancelled, let self else { return }
                 await self.fetchSlideStatus()
-                await self.fetchActivePresentation()
             }
         }
     }
@@ -149,6 +147,7 @@ final class ProPresenterViewModel {
 
     func selectPlaylist(_ playlist: Playlist) async {
         if playlist.uuid == selectedPlaylist?.uuid { return }
+        userOverrodeSelection = true
         selectedPlaylist = playlist
         guard let items = try? await api.fetchPlaylistItems(host: host, port: portInt, uuid: playlist.uuid) else {
             playlistItems = []
@@ -156,27 +155,52 @@ final class ProPresenterViewModel {
         }
         playlistItems = items
         if let live = items.first(where: { $0.uuid == livePresentationUUID }) {
+            userOverrodeSelection = false
             await selectPresentation(live)
         } else if let first = items.first {
-            await selectPresentation(first)
+            await loadPresentation(first)
         }
     }
 
     func fetchActivePresentation() async {
-        guard let active = try? await api.fetchActivePresentation(host: host, port: portInt) else { return }
-        let wasViewingLive = selectedPresentation == nil || selectedPresentation?.uuid == livePresentationUUID
+        let knownArrUUID = playlistItems.first(where: { $0.uuid == livePresentationUUID })?.arrangementUUID
+        guard var active = try? await api.fetchActivePresentation(host: host, port: portInt, arrangementUUID: knownArrUUID) else { return }
+        let previousLiveUUID = livePresentationUUID
         livePresentationUUID = active.uuid
-        if wasViewingLive {
+
+        if !userOverrodeSelection || selectedPresentation == nil {
+            if !playlistItems.contains(where: { $0.uuid == active.uuid }) || selectedPlaylist == nil {
+                await findAndSelectPlaylistContaining(active.uuid)
+                // Re-fetch with correct arrangement now that we have playlist items
+                if let arrUUID = playlistItems.first(where: { $0.uuid == active.uuid })?.arrangementUUID,
+                   active.arrangementUUID != arrUUID,
+                   let corrected = try? await api.fetchActivePresentation(host: host, port: portInt, arrangementUUID: arrUUID) {
+                    active = corrected
+                }
+            }
             selectedPresentation = active
         }
-        if selectedPlaylist == nil {
-            for playlist in playlists {
-                if let items = try? await api.fetchPlaylistItems(host: host, port: portInt, uuid: playlist.uuid),
-                   items.contains(where: { $0.uuid == active.uuid }) {
-                    selectedPlaylist = playlist
-                    playlistItems = items
-                    break
+
+        if active.uuid != previousLiveUUID && userOverrodeSelection {
+            if playlistItems.contains(where: { $0.uuid == active.uuid }) {
+                userOverrodeSelection = false
+                let arrUUID = playlistItems.first(where: { $0.uuid == active.uuid })?.arrangementUUID
+                if arrUUID != active.arrangementUUID,
+                   let corrected = try? await api.fetchActivePresentation(host: host, port: portInt, arrangementUUID: arrUUID) {
+                    active = corrected
                 }
+                selectedPresentation = active
+            }
+        }
+    }
+
+    private func findAndSelectPlaylistContaining(_ presentationUUID: String) async {
+        for playlist in playlists {
+            if let items = try? await api.fetchPlaylistItems(host: host, port: portInt, uuid: playlist.uuid),
+               items.contains(where: { $0.uuid == presentationUUID }) {
+                selectedPlaylist = playlist
+                playlistItems = items
+                return
             }
         }
     }
@@ -197,8 +221,18 @@ final class ProPresenterViewModel {
 
     func selectPresentation(_ presentation: Presentation) async {
         if presentation.uuid == selectedPresentation?.uuid { return }
+        if presentation.uuid != livePresentationUUID {
+            userOverrodeSelection = true
+        } else {
+            userOverrodeSelection = false
+        }
+        await loadPresentation(presentation)
+    }
+
+    private func loadPresentation(_ presentation: Presentation) async {
+        if presentation.uuid == selectedPresentation?.uuid { return }
         do {
-            let full = try await api.fetchPresentation(host: host, port: portInt, uuid: presentation.uuid)
+            let full = try await api.fetchPresentation(host: host, port: portInt, uuid: presentation.uuid, arrangementUUID: presentation.arrangementUUID)
             selectedPresentation = full
         } catch {
             selectedPresentation = presentation
@@ -216,13 +250,17 @@ final class ProPresenterViewModel {
     }
 
     func triggerNext() async {
-        try? await api.triggerNext(host: host, port: portInt)
-        await fetchSlideStatus()
+        guard let pres = selectedPresentation else { return }
+        let currentIndex = isViewingLivePresentation ? liveSlideIndex : -1
+        guard let next = pres.slides.first(where: { $0.index > currentIndex && $0.enabled }) else { return }
+        await triggerSlide(at: next.index)
     }
 
     func triggerPrevious() async {
-        try? await api.triggerPrevious(host: host, port: portInt)
-        await fetchSlideStatus()
+        guard let pres = selectedPresentation else { return }
+        let currentIndex = isViewingLivePresentation ? liveSlideIndex : pres.slides.count
+        guard let prev = pres.slides.last(where: { $0.index < currentIndex && $0.enabled }) else { return }
+        await triggerSlide(at: prev.index)
     }
 
     func selectNextPresentation() async {
@@ -240,7 +278,7 @@ final class ProPresenterViewModel {
     }
 
     func thumbnailURL(for index: Int) -> URL? {
-        guard let pres = selectedPresentation else { return nil }
+        guard index >= 0, let pres = selectedPresentation else { return nil }
         return api.thumbnailURL(host: host, port: portInt, uuid: pres.uuid, index: index)
     }
 

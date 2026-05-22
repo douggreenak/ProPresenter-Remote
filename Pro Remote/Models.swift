@@ -3,10 +3,6 @@ import SwiftUI
 
 // MARK: - API Response Types
 
-struct PresentationListItem: Codable {
-    let id: PresentationIdentifier
-}
-
 struct PresentationIdentifier: Codable, Hashable {
     let uuid: String
     let name: String
@@ -26,12 +22,25 @@ struct ActivePresentationResponse: Codable {
 struct PresentationPayload: Codable {
     let id: PresentationIdentifier
     let groups: [SlideGroupPayload]
+    let arrangements: [ArrangementPayload]?
+    let currentArrangement: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, groups, arrangements
+        case currentArrangement = "current_arrangement"
+    }
+}
+
+struct ArrangementPayload: Codable {
+    let id: PresentationIdentifier
+    let groups: [String]
 }
 
 struct SlideGroupPayload: Codable {
     let name: String
     let color: GroupColorPayload?
     let slides: [SlidePayload]
+    let uuid: String?
 }
 
 struct GroupColorPayload: Codable {
@@ -42,21 +51,10 @@ struct GroupColorPayload: Codable {
 }
 
 struct SlidePayload: Codable {
-    let enabled: Bool
+    let enabled: Bool?
     let notes: String
     let text: String
     let label: String?
-}
-
-struct SlideStatusPayload: Codable {
-    let current: SlideStatusItem?
-    let next: SlideStatusItem?
-}
-
-struct SlideStatusItem: Codable {
-    let text: String?
-    let notes: String?
-    let uuid: String?
 }
 
 struct SlideIndexPayload: Codable {
@@ -75,10 +73,6 @@ struct PresentationIndexPayload: Codable {
         case presentationId = "presentation_id"
         case index
     }
-}
-
-struct PresentationListWrapper: Codable {
-    let presentations: [PresentationListItem]
 }
 
 // MARK: - Playlist API Response Types (recursive)
@@ -139,20 +133,20 @@ struct PlaylistItem: Codable {
     func asPresentation() -> Presentation? {
         guard let id else { return nil }
         let uuid = presentationInfo?.presentationUUID ?? id.uuid
-        return Presentation(uuid: uuid, name: id.name, index: id.index)
+        return Presentation(uuid: uuid, name: id.name, index: id.index, arrangementUUID: presentationInfo?.arrangementUUID)
     }
 }
 
 struct PlaylistPresentationInfo: Codable {
     let presentationUUID: String?
+    let arrangementUUID: String?
+    let arrangementName: String?
 
     enum CodingKeys: String, CodingKey {
         case presentationUUID = "presentation_uuid"
+        case arrangementUUID = "arrangement_uuid"
+        case arrangementName = "arrangement_name"
     }
-}
-
-struct PlaylistListWrapper: Codable {
-    let playlists: [PlaylistNode]?
 }
 
 // MARK: - App Models
@@ -163,12 +157,14 @@ struct Presentation: Identifiable, Hashable {
     let name: String
     let index: Int?
     var slides: [Slide]
+    var arrangementUUID: String?
 
-    init(uuid: String, name: String, index: Int? = nil, slides: [Slide] = []) {
+    init(uuid: String, name: String, index: Int? = nil, slides: [Slide] = [], arrangementUUID: String? = nil) {
         self.uuid = uuid
         self.name = name
         self.index = index
         self.slides = slides
+        self.arrangementUUID = arrangementUUID
     }
 
     static func == (lhs: Presentation, rhs: Presentation) -> Bool {
@@ -188,6 +184,7 @@ struct Slide: Identifiable, Hashable {
     let enabled: Bool
     let groupName: String
     let groupColor: Color?
+    let thumbnailIndex: Int
 
     var index: Int { id }
 
@@ -197,7 +194,7 @@ struct Slide: Identifiable, Hashable {
         return ""
     }
 
-    init(id: Int, text: String, label: String = "", notes: String, enabled: Bool, groupName: String, groupColor: Color? = nil) {
+    init(id: Int, text: String, label: String = "", notes: String, enabled: Bool, groupName: String, groupColor: Color? = nil, thumbnailIndex: Int? = nil) {
         self.id = id
         self.text = text
         self.label = label
@@ -205,6 +202,7 @@ struct Slide: Identifiable, Hashable {
         self.enabled = enabled
         self.groupName = groupName
         self.groupColor = groupColor
+        self.thumbnailIndex = thumbnailIndex ?? id
     }
 }
 

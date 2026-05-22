@@ -71,14 +71,6 @@ struct SettingsView: View {
                 }
             }
 
-            if !viewModel.apiDebugLog.isEmpty {
-                Section("API Debug Log") {
-                    Text(viewModel.apiDebugLog)
-                        .font(.system(.caption, design: .monospaced))
-                        .textSelection(.enabled)
-                        .frame(maxHeight: 200)
-                }
-            }
         }
         .formStyle(.grouped)
         .navigationTitle("Settings")

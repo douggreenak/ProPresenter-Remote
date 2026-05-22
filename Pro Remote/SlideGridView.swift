@@ -16,7 +16,7 @@ struct SlideGridView: View {
                             ForEach(presentation.slides) { slide in
                                 SlideCell(
                                     slide: slide,
-                                    thumbnailURL: viewModel.thumbnailURL(for: slide.index),
+                                    thumbnailURL: viewModel.thumbnailURL(for: slide.thumbnailIndex),
                                     isLive: viewModel.isViewingLivePresentation && slide.index == viewModel.liveSlideIndex
                                 ) {
                                     Task { await viewModel.triggerSlide(at: slide.index) }
@@ -149,27 +149,37 @@ private struct SlideCell: View {
 
     @State private var isHovered = false
 
+    private var slidePlaceholder: some View {
+        Rectangle()
+            .fill(.black)
+            .aspectRatio(16 / 9, contentMode: .fit)
+            .overlay {
+                Text(slide.displayText.isEmpty ? slide.groupName : slide.displayText)
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(slide.displayText.isEmpty ? Color(white: 0.3) : .white)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(5)
+                    .padding(6)
+            }
+    }
+
     var body: some View {
-        Button(action: onTap) {
+        Button(action: { if slide.enabled { onTap() } }) {
             VStack(alignment: .leading, spacing: 0) {
-                AsyncImage(url: thumbnailURL) { image in
-                    image
-                        .resizable()
-                        .aspectRatio(16 / 9, contentMode: .fit)
-                } placeholder: {
-                    Rectangle()
-                        .fill(Color(white: 0.15))
-                        .aspectRatio(16 / 9, contentMode: .fit)
-                        .overlay {
-                            if !slide.displayText.isEmpty {
-                                Text(slide.displayText)
-                                    .font(.system(size: 10))
-                                    .foregroundColor(Color(white: 0.4))
-                                    .multilineTextAlignment(.center)
-                                    .lineLimit(4)
-                                    .padding(8)
+                Group {
+                    if let thumbnailURL {
+                        AsyncImage(url: thumbnailURL) { phase in
+                            if case .success(let image) = phase {
+                                image
+                                    .resizable()
+                                    .aspectRatio(16 / 9, contentMode: .fit)
+                            } else {
+                                slidePlaceholder
                             }
                         }
+                    } else {
+                        slidePlaceholder
+                    }
                 }
 
                 HStack(spacing: 4) {
@@ -203,10 +213,11 @@ private struct SlideCell: View {
                         lineWidth: isLive ? 2.5 : 0.5
                     )
             )
-            .opacity(isHovered ? 0.85 : 1.0)
+            .opacity(!slide.enabled ? 0.35 : isHovered ? 0.85 : 1.0)
             .animation(.easeOut(duration: 0.1), value: isHovered)
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
+        .allowsHitTesting(slide.enabled)
     }
 }
