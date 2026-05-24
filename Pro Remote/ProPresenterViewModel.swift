@@ -18,6 +18,7 @@ final class ProPresenterViewModel {
     var isConnected: Bool = false
     var connectionHealthy: Bool = false
     private var pollFailureCount: Int = 0
+    private var lastUserTrigger: ContinuousClock.Instant?
     var connectionError: String?
     var showSettings: Bool = false
     var host: String {
@@ -220,13 +221,16 @@ final class ProPresenterViewModel {
         let previousUUID = livePresentationUUID
         let triggerIdx = status.slideIndex
 
-        if let pres = selectedPresentation,
-           pres.uuid == (status.presentationUUID ?? livePresentationUUID),
-           let candidates = pres.triggerToDisplayMap[triggerIdx],
-           !candidates.isEmpty {
-            liveSlideIndex = candidates.first(where: { $0 >= liveSlideIndex }) ?? candidates.first!
-        } else {
-            liveSlideIndex = triggerIdx
+        let recentTrigger = lastUserTrigger.map { ContinuousClock.now - $0 < .milliseconds(1500) } ?? false
+        if !recentTrigger {
+            if let pres = selectedPresentation,
+               pres.uuid == (status.presentationUUID ?? livePresentationUUID),
+               let candidates = pres.triggerToDisplayMap[triggerIdx],
+               !candidates.isEmpty {
+                liveSlideIndex = candidates.first(where: { $0 >= liveSlideIndex }) ?? candidates.first!
+            } else {
+                liveSlideIndex = triggerIdx
+            }
         }
 
         if let uuid = status.presentationUUID {
@@ -267,8 +271,8 @@ final class ProPresenterViewModel {
               let triggerIdx = slide.triggerIndex else { return }
         liveSlideIndex = index
         livePresentationUUID = pres.uuid
+        lastUserTrigger = .now
         try? await api.triggerSlide(host: host, port: portInt, uuid: pres.uuid, index: triggerIdx)
-        await fetchSlideStatus()
     }
 
     func triggerNext() async {

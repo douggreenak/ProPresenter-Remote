@@ -168,7 +168,7 @@ private struct SlideCell: View {
     }
 
     var body: some View {
-        Button(action: { if slide.enabled && slide.triggerIndex != nil { onTap() } }) {
+        Button(action: { if slide.enabled { onTap() } }) {
             VStack(alignment: .leading, spacing: 0) {
                 Group {
                     if let thumbnailURL {
@@ -217,11 +217,11 @@ private struct SlideCell: View {
                         lineWidth: isLive ? 2.5 : 0.5
                     )
             )
-            .opacity(!slide.enabled || slide.triggerIndex == nil ? 0.35 : isHovered ? 0.85 : 1.0)
+            .opacity(!slide.enabled ? 0.35 : isHovered ? 0.85 : 1.0)
             .animation(.easeOut(duration: 0.1), value: isHovered)
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
-        .allowsHitTesting(slide.enabled && slide.triggerIndex != nil)
+        .allowsHitTesting(slide.enabled)
     }
 }
