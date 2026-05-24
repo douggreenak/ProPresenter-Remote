@@ -133,7 +133,7 @@ struct PlaylistItem: Codable {
     func asPresentation() -> Presentation? {
         guard let id else { return nil }
         let uuid = presentationInfo?.presentationUUID ?? id.uuid
-        return Presentation(uuid: uuid, name: id.name, index: id.index, arrangementUUID: presentationInfo?.arrangementUUID)
+        return Presentation(uuid: uuid, name: id.name, index: id.index, arrangementUUID: presentationInfo?.arrangementUUID, itemUUID: id.uuid)
     }
 }
 
@@ -158,14 +158,18 @@ struct Presentation: Identifiable, Hashable {
     let index: Int?
     var slides: [Slide]
     var arrangementUUID: String?
+    var itemUUID: String?
     var triggerToDisplayMap: [Int: [Int]] = [:]
 
-    init(uuid: String, name: String, index: Int? = nil, slides: [Slide] = [], arrangementUUID: String? = nil, triggerToDisplayMap: [Int: [Int]] = [:]) {
+    var listID: String { itemUUID ?? uuid }
+
+    init(uuid: String, name: String, index: Int? = nil, slides: [Slide] = [], arrangementUUID: String? = nil, itemUUID: String? = nil, triggerToDisplayMap: [Int: [Int]] = [:]) {
         self.uuid = uuid
         self.name = name
         self.index = index
         self.slides = slides
         self.arrangementUUID = arrangementUUID
+        self.itemUUID = itemUUID
         self.triggerToDisplayMap = triggerToDisplayMap
     }
 

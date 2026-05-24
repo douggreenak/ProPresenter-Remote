@@ -1,12 +1,83 @@
 import SwiftUI
+#if canImport(AppKit)
+import AppKit
+#endif
+
+// MARK: - Cached Thumbnail Image
+
+struct ThumbnailImage: View {
+    let url: URL?
+
+    @State private var image: Image?
+
+    private static let cache: NSCache<NSURL, AnyObject> = {
+        let c = NSCache<NSURL, AnyObject>()
+        c.countLimit = 300
+        return c
+    }()
+
+    var body: some View {
+        Group {
+            if let image {
+                image
+                    .resizable()
+                    .aspectRatio(16 / 9, contentMode: .fit)
+            } else {
+                Rectangle()
+                    .fill(Color(white: 0.13))
+                    .aspectRatio(16 / 9, contentMode: .fit)
+            }
+        }
+        .task(id: url) {
+            guard let url else { return }
+            if let cached = Self.platformImage(for: url) {
+                image = cached
+                return
+            }
+            guard let (data, _) = try? await URLSession.shared.data(from: url) else { return }
+            if let decoded = Self.decode(data: data, url: url) {
+                image = decoded
+            }
+        }
+    }
+
+    private static func platformImage(for url: URL) -> Image? {
+        #if canImport(UIKit)
+        if let img = cache.object(forKey: url as NSURL) as? UIImage {
+            return Image(uiImage: img)
+        }
+        #else
+        if let img = cache.object(forKey: url as NSURL) as? NSImage {
+            return Image(nsImage: img)
+        }
+        #endif
+        return nil
+    }
+
+    private static func decode(data: Data, url: URL) -> Image? {
+        #if canImport(UIKit)
+        guard let img = UIImage(data: data) else { return nil }
+        cache.setObject(img, forKey: url as NSURL)
+        return Image(uiImage: img)
+        #else
+        guard let img = NSImage(data: data) else { return nil }
+        cache.setObject(img, forKey: url as NSURL)
+        return Image(nsImage: img)
+        #endif
+    }
+}
+
+// MARK: - Slide Grid
 
 struct SlideGridView: View {
     @Environment(ProPresenterViewModel.self) private var viewModel
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @AppStorage("slideMinWidth") private var slideMinWidth: Double = 200
 
     private var columns: [GridItem] {
-        let minimum: CGFloat = sizeClass == .compact ? 140 : 200
-        return [GridItem(.adaptive(minimum: minimum, maximum: 320), spacing: 8)]
+        let compactDefault: CGFloat = 140
+        let minimum: CGFloat = sizeClass == .compact ? max(compactDefault, CGFloat(slideMinWidth) * 0.7) : CGFloat(slideMinWidth)
+        return [GridItem(.adaptive(minimum: minimum, maximum: 400), spacing: 8)]
     }
 
     var body: some View {
@@ -62,18 +133,29 @@ struct SlideGridView: View {
     }
 
     private func headerBar(for presentation: Presentation) -> some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(presentation.name)
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.system(size: 16, weight: .bold))
                     .foregroundColor(.white)
                     .lineLimit(1)
                 Text("\(presentation.slides.count) slides")
-                    .font(.system(size: 10))
+                    .font(.system(size: 11))
                     .foregroundColor(Color(white: 0.45))
             }
 
             Spacer()
+
+            HStack(spacing: 6) {
+                Image(systemName: "minus.magnifyingglass")
+                    .font(.system(size: 11))
+                    .foregroundColor(Color(white: 0.4))
+                Slider(value: $slideMinWidth, in: 120...350, step: 10)
+                    .frame(width: 140)
+                Image(systemName: "plus.magnifyingglass")
+                    .font(.system(size: 11))
+                    .foregroundColor(Color(white: 0.4))
+            }
 
             if !viewModel.isViewingLivePresentation && !viewModel.livePresentationUUID.isEmpty {
                 Button {
@@ -82,7 +164,7 @@ struct SlideGridView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "dot.radiowaves.left.and.right")
                             .font(.system(size: 8))
-                        Text("Go Live")
+                        Text("Go to Active")
                             .font(.system(size: 9, weight: .semibold))
                     }
                     .foregroundStyle(ProPresenterViewModel.liveColor)
@@ -91,7 +173,7 @@ struct SlideGridView: View {
                     .background(ProPresenterViewModel.liveColor.opacity(0.15), in: Capsule())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Go to live presentation")
+                .accessibilityLabel("Go to active presentation")
             }
 
             if viewModel.isViewingLivePresentation {
@@ -114,69 +196,72 @@ struct SlideGridView: View {
         .animation(.easeInOut(duration: 0.3), value: viewModel.isViewingLivePresentation)
     }
 
+    private func transportButton(_ label: String, disabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(disabled ? Color(white: 0.2) : .white)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(disabled ? Color(white: 0.1) : Color(white: 0.18))
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+    }
+
     private var transportBar: some View {
-        HStack {
+        HStack(spacing: 8) {
+            transportButton("Prev Item", disabled: !viewModel.canSelectPreviousPresentation) {
+                Task { await viewModel.selectPreviousPresentation() }
+            }
+
             Spacer()
-            HStack(spacing: 20) {
-                Button {
+
+            HStack(spacing: 8) {
+                transportButton("First", disabled: !viewModel.canTriggerPrevious) {
                     if let first = viewModel.selectedPresentation?.slides.first(where: { $0.triggerIndex != nil }) {
                         Task { await viewModel.triggerSlide(at: first.index) }
                     }
-                } label: {
-                    Image(systemName: "backward.end.fill")
-                        .font(.system(size: 12))
-                        .frame(width: 32, height: 32)
                 }
-                .buttonStyle(.plain)
-                .disabled(!viewModel.canTriggerPrevious)
-                .accessibilityLabel("First slide")
 
-                Button { Task { await viewModel.triggerPrevious() } } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 14, weight: .semibold))
-                        .frame(width: 32, height: 32)
+                transportButton("Previous", disabled: !viewModel.canTriggerPrevious) {
+                    Task { await viewModel.triggerPrevious() }
                 }
-                .buttonStyle(.plain)
-                .disabled(!viewModel.canTriggerPrevious)
-                .accessibilityLabel("Previous slide")
 
                 if viewModel.isViewingLivePresentation,
                    let total = viewModel.selectedPresentation?.slides.count {
                     Text("\(viewModel.liveSlideIndex + 1) / \(total)")
-                        .font(.system(size: 12, weight: .medium, design: .monospaced))
-                        .foregroundColor(Color(white: 0.45))
-                        .frame(minWidth: 48)
+                        .font(.system(size: 13, weight: .medium, design: .monospaced))
+                        .foregroundColor(Color(white: 0.5))
+                        .frame(minWidth: 52)
                         .contentTransition(.numericText())
                         .animation(.snappy(duration: 0.2), value: viewModel.liveSlideIndex)
                         .accessibilityLabel("Slide \(viewModel.liveSlideIndex + 1) of \(total)")
                 }
 
-                Button { Task { await viewModel.triggerNext() } } label: {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 14, weight: .semibold))
-                        .frame(width: 32, height: 32)
+                transportButton("Next", disabled: !viewModel.canTriggerNext) {
+                    Task { await viewModel.triggerNext() }
                 }
-                .buttonStyle(.plain)
-                .disabled(!viewModel.canTriggerNext)
-                .accessibilityLabel("Next slide")
 
-                Button {
+                transportButton("Last", disabled: !viewModel.canTriggerNext) {
                     if let last = viewModel.selectedPresentation?.slides.last(where: { $0.triggerIndex != nil }) {
                         Task { await viewModel.triggerSlide(at: last.index) }
                     }
-                } label: {
-                    Image(systemName: "forward.end.fill")
-                        .font(.system(size: 12))
-                        .frame(width: 32, height: 32)
                 }
-                .buttonStyle(.plain)
-                .disabled(!viewModel.canTriggerNext)
-                .accessibilityLabel("Last slide")
             }
-            .foregroundColor(Color(white: 0.55))
+
             Spacer()
+
+            transportButton("Next Item", disabled: !viewModel.canSelectNextPresentation) {
+                Task { await viewModel.selectNextPresentation() }
+            }
         }
-        .frame(height: 36)
+        .padding(.horizontal, 8)
+        .frame(height: 48)
         .background(Color(white: 0.07))
     }
 }
@@ -215,16 +300,8 @@ private struct SlideCell: View {
         Button(action: { if slide.enabled { onTap() } }) {
             VStack(alignment: .leading, spacing: 0) {
                 Group {
-                    if let thumbnailURL {
-                        AsyncImage(url: thumbnailURL) { phase in
-                            if case .success(let image) = phase {
-                                image
-                                    .resizable()
-                                    .aspectRatio(16 / 9, contentMode: .fit)
-                            } else {
-                                slidePlaceholder
-                            }
-                        }
+                    if thumbnailURL != nil {
+                        ThumbnailImage(url: thumbnailURL)
                     } else {
                         slidePlaceholder
                     }
@@ -237,10 +314,19 @@ private struct SlideCell: View {
                             .frame(width: 4, height: 14)
                     }
 
-                    Text(slide.groupName.isEmpty ? "Slide \(slide.index + 1)" : slide.groupName)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(Color(white: 0.6))
-                        .lineLimit(1)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(slide.groupName.isEmpty ? "Slide \(slide.index + 1)" : slide.groupName)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(Color(white: 0.7))
+                            .lineLimit(1)
+
+                        if !slide.label.isEmpty {
+                            Text(slide.label)
+                                .font(.system(size: 10))
+                                .foregroundColor(Color(white: 0.45))
+                                .lineLimit(1)
+                        }
+                    }
 
                     Spacer(minLength: 0)
 

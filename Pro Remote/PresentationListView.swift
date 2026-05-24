@@ -14,15 +14,15 @@ struct PresentationListView: View {
                             Task { await viewModel.selectPlaylist(playlist) }
                         } label: {
                             Text(playlist.name)
-                                .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                                .font(.system(size: 14, weight: isSelected ? .semibold : .regular))
                                 .foregroundColor(isSelected ? .white : Color(white: 0.8))
                                 .lineLimit(2)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 7)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
                                 .contentShape(Rectangle())
                                 .background(
-                                    RoundedRectangle(cornerRadius: 4)
+                                    RoundedRectangle(cornerRadius: 6)
                                         .fill(isSelected ? Color(white: 0.25) : Color.clear)
                                         .padding(.horizontal, 4)
                                 )
@@ -49,8 +49,8 @@ struct PresentationListView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(spacing: 0) {
-                            ForEach(Array(viewModel.playlistItems.enumerated()), id: \.element.uuid) { index, item in
-                                let isSelected = item.uuid == viewModel.selectedPresentation?.uuid
+                            ForEach(Array(viewModel.playlistItems.enumerated()), id: \.element.listID) { index, item in
+                                let isSelected = item.listID == viewModel.selectedPresentation?.listID
                                 let isLive = item.uuid == viewModel.livePresentationUUID
 
                                 Button {
@@ -58,45 +58,45 @@ struct PresentationListView: View {
                                 } label: {
                                     HStack(spacing: 0) {
                                         Text("\(index + 1)")
-                                            .font(.system(size: 10, design: .monospaced))
+                                            .font(.system(size: 11, design: .monospaced))
                                             .foregroundColor(isSelected ? .white : Color(white: 0.4))
-                                            .frame(width: 20, alignment: .trailing)
-                                            .padding(.leading, 4)
+                                            .frame(width: 24, alignment: .trailing)
+                                            .padding(.leading, 6)
 
                                         Text(item.name)
-                                            .font(.system(size: 11))
+                                            .font(.system(size: 13))
                                             .foregroundColor(isSelected ? .white : Color(white: 0.75))
                                             .lineLimit(1)
-                                            .padding(.leading, 5)
+                                            .padding(.leading, 8)
 
                                         Spacer(minLength: 4)
 
                                         if isLive {
                                             PhaseAnimator([false, true]) { isGlowing in
                                                 Text("LIVE")
-                                                    .font(.system(size: 8, weight: .heavy))
+                                                    .font(.system(size: 9, weight: .heavy))
                                                     .foregroundStyle(.white)
-                                                    .padding(.horizontal, 5)
-                                                    .padding(.vertical, 2)
+                                                    .padding(.horizontal, 6)
+                                                    .padding(.vertical, 3)
                                                     .background(ProPresenterViewModel.liveColor, in: Capsule())
                                                     .shadow(color: ProPresenterViewModel.liveColor.opacity(isGlowing ? 0.5 : 0), radius: isGlowing ? 4 : 0)
                                             } animation: { _ in
                                                 .easeInOut(duration: 1.5)
                                             }
-                                            .padding(.trailing, 6)
+                                            .padding(.trailing, 8)
                                         }
                                     }
-                                    .frame(height: 28)
+                                    .frame(height: 38)
                                     .frame(maxWidth: .infinity)
                                     .contentShape(Rectangle())
                                     .background(
-                                        RoundedRectangle(cornerRadius: 4)
+                                        RoundedRectangle(cornerRadius: 6)
                                             .fill(isSelected ? Color(white: 0.22) : Color.clear)
                                             .padding(.horizontal, 4)
                                     )
                                 }
                                 .buttonStyle(.plain)
-                                .id(item.uuid)
+                                .id(item.listID)
                                 .animation(.easeOut(duration: 0.15), value: isSelected)
                                 .accessibilityLabel("\(item.name)\(isLive ? ", live" : "")")
                                 .accessibilityHint("Double tap to select")
@@ -104,11 +104,11 @@ struct PresentationListView: View {
                         }
                     }
                     .onAppear {
-                        proxy.scrollTo(viewModel.selectedPresentation?.uuid, anchor: .center)
+                        proxy.scrollTo(viewModel.selectedPresentation?.listID, anchor: .center)
                     }
-                    .onChange(of: viewModel.selectedPresentation?.uuid) { _, newUUID in
+                    .onChange(of: viewModel.selectedPresentation?.listID) { _, newID in
                         withAnimation(.easeInOut(duration: 0.2)) {
-                            proxy.scrollTo(newUUID, anchor: .center)
+                            proxy.scrollTo(newID, anchor: .center)
                         }
                     }
                 }

@@ -77,6 +77,18 @@ final class ProPresenterViewModel {
         return pres.slides.contains { $0.index < currentIndex && $0.enabled && $0.triggerIndex != nil }
     }
 
+    var canSelectNextPresentation: Bool {
+        guard let current = selectedPresentation,
+              let idx = playlistItems.firstIndex(where: { $0.listID == current.listID }) else { return false }
+        return idx + 1 < playlistItems.count
+    }
+
+    var canSelectPreviousPresentation: Bool {
+        guard let current = selectedPresentation,
+              let idx = playlistItems.firstIndex(where: { $0.listID == current.listID }) else { return false }
+        return idx > 0
+    }
+
     // MARK: - Init
 
     init() {
@@ -193,24 +205,24 @@ final class ProPresenterViewModel {
         if !userOverrodeSelection || selectedPresentation == nil {
             if !playlistItems.contains(where: { $0.uuid == active.uuid }) || selectedPlaylist == nil {
                 await findAndSelectPlaylistContaining(active.uuid)
-                // Re-fetch with correct arrangement now that we have playlist items
                 if let arrUUID = playlistItems.first(where: { $0.uuid == active.uuid })?.arrangementUUID,
                    active.arrangementUUID != arrUUID,
                    let corrected = try? await api.fetchActivePresentation(host: host, port: portInt, arrangementUUID: arrUUID) {
                     active = corrected
                 }
             }
+            active.itemUUID = playlistItems.first(where: { $0.uuid == active.uuid })?.itemUUID
             selectedPresentation = active
         }
 
         if active.uuid != previousLiveUUID && userOverrodeSelection {
-            if playlistItems.contains(where: { $0.uuid == active.uuid }) {
+            if let matchingItem = playlistItems.first(where: { $0.uuid == active.uuid }) {
                 userOverrodeSelection = false
-                let arrUUID = playlistItems.first(where: { $0.uuid == active.uuid })?.arrangementUUID
-                if arrUUID != active.arrangementUUID,
-                   let corrected = try? await api.fetchActivePresentation(host: host, port: portInt, arrangementUUID: arrUUID) {
+                if matchingItem.arrangementUUID != active.arrangementUUID,
+                   let corrected = try? await api.fetchActivePresentation(host: host, port: portInt, arrangementUUID: matchingItem.arrangementUUID) {
                     active = corrected
                 }
+                active.itemUUID = matchingItem.itemUUID
                 selectedPresentation = active
             }
         }
@@ -275,9 +287,11 @@ final class ProPresenterViewModel {
     }
 
     private func loadPresentation(_ presentation: Presentation) async {
-        if presentation.uuid == selectedPresentation?.uuid { return }
+        if presentation.uuid == selectedPresentation?.uuid &&
+           presentation.listID == selectedPresentation?.listID { return }
         do {
-            let full = try await api.fetchPresentation(host: host, port: portInt, uuid: presentation.uuid, arrangementUUID: presentation.arrangementUUID)
+            var full = try await api.fetchPresentation(host: host, port: portInt, uuid: presentation.uuid, arrangementUUID: presentation.arrangementUUID)
+            full.itemUUID = presentation.itemUUID
             selectedPresentation = full
         } catch {
             selectedPresentation = presentation
@@ -325,14 +339,14 @@ final class ProPresenterViewModel {
 
     func selectNextPresentation() async {
         guard let current = selectedPresentation,
-              let idx = playlistItems.firstIndex(where: { $0.uuid == current.uuid }),
+              let idx = playlistItems.firstIndex(where: { $0.listID == current.listID }),
               idx + 1 < playlistItems.count else { return }
         await selectPresentation(playlistItems[idx + 1])
     }
 
     func selectPreviousPresentation() async {
         guard let current = selectedPresentation,
-              let idx = playlistItems.firstIndex(where: { $0.uuid == current.uuid }),
+              let idx = playlistItems.firstIndex(where: { $0.listID == current.listID }),
               idx > 0 else { return }
         await selectPresentation(playlistItems[idx - 1])
     }

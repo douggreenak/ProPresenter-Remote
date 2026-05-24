@@ -24,17 +24,13 @@ struct NotesView: View {
                     .padding(.vertical, 5)
 
                     if let url = viewModel.thumbnailURL(for: slide.thumbnailIndex) {
-                        AsyncImage(url: url) { image in
-                            image.resizable().aspectRatio(16 / 9, contentMode: .fit)
-                        } placeholder: {
-                            Rectangle().fill(Color(white: 0.13)).aspectRatio(16 / 9, contentMode: .fit)
-                        }
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 4)
-                                .strokeBorder(ProPresenterViewModel.liveColor, lineWidth: 2)
-                        )
-                        .padding(.horizontal, 8)
+                        ThumbnailImage(url: url)
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 4)
+                                    .strokeBorder(ProPresenterViewModel.liveColor, lineWidth: 2)
+                            )
+                            .padding(.horizontal, 8)
                     }
                 }
 
@@ -53,17 +49,13 @@ struct NotesView: View {
 
                         if let nextSlide = viewModel.selectedPresentation?.slides[safe: nextIndex],
                            let url = viewModel.thumbnailURL(for: nextSlide.thumbnailIndex) {
-                            AsyncImage(url: url) { image in
-                                image.resizable().aspectRatio(16 / 9, contentMode: .fit)
-                            } placeholder: {
-                                Rectangle().fill(Color(white: 0.13)).aspectRatio(16 / 9, contentMode: .fit)
-                            }
-                            .clipShape(RoundedRectangle(cornerRadius: 4))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 4)
-                                    .strokeBorder(Color(white: 0.28), lineWidth: 1)
-                            )
-                            .padding(.horizontal, 8)
+                            ThumbnailImage(url: url)
+                                .clipShape(RoundedRectangle(cornerRadius: 4))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .strokeBorder(Color(white: 0.28), lineWidth: 1)
+                                )
+                                .padding(.horizontal, 8)
                         }
                     }
                 }
