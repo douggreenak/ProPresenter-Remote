@@ -158,13 +158,15 @@ struct Presentation: Identifiable, Hashable {
     let index: Int?
     var slides: [Slide]
     var arrangementUUID: String?
+    var triggerToDisplayMap: [Int: [Int]] = [:]
 
-    init(uuid: String, name: String, index: Int? = nil, slides: [Slide] = [], arrangementUUID: String? = nil) {
+    init(uuid: String, name: String, index: Int? = nil, slides: [Slide] = [], arrangementUUID: String? = nil, triggerToDisplayMap: [Int: [Int]] = [:]) {
         self.uuid = uuid
         self.name = name
         self.index = index
         self.slides = slides
         self.arrangementUUID = arrangementUUID
+        self.triggerToDisplayMap = triggerToDisplayMap
     }
 
     static func == (lhs: Presentation, rhs: Presentation) -> Bool {
@@ -184,7 +186,8 @@ struct Slide: Identifiable, Hashable {
     let enabled: Bool
     let groupName: String
     let groupColor: Color?
-    let thumbnailIndex: Int
+    let thumbnailIndex: Int?
+    let triggerIndex: Int?
 
     var index: Int { id }
 
@@ -194,7 +197,7 @@ struct Slide: Identifiable, Hashable {
         return ""
     }
 
-    init(id: Int, text: String, label: String = "", notes: String, enabled: Bool, groupName: String, groupColor: Color? = nil, thumbnailIndex: Int? = nil) {
+    init(id: Int, text: String, label: String = "", notes: String, enabled: Bool, groupName: String, groupColor: Color? = nil, thumbnailIndex: Int? = nil, triggerIndex: Int? = nil) {
         self.id = id
         self.text = text
         self.label = label
@@ -202,7 +205,8 @@ struct Slide: Identifiable, Hashable {
         self.enabled = enabled
         self.groupName = groupName
         self.groupColor = groupColor
-        self.thumbnailIndex = thumbnailIndex ?? id
+        self.thumbnailIndex = thumbnailIndex
+        self.triggerIndex = triggerIndex
     }
 }
 

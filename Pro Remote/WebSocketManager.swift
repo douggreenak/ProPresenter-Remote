@@ -10,7 +10,6 @@ final class WebSocketManager {
     private var port = 1025
 
     var onSlideChanged: (() -> Void)?
-    var onConnectionChange: ((_ connected: Bool) -> Void)?
 
     func connect(host: String, port: Int) {
         self.host = host
@@ -21,14 +20,12 @@ final class WebSocketManager {
         guard let url = URL(string: "ws://\(host):\(port)/v1/status/slide") else { return }
         task = session.webSocketTask(with: url)
         task?.resume()
-        onConnectionChange?(true)
         receive()
     }
 
     func disconnect() {
         shouldReconnect = false
         tearDown()
-        onConnectionChange?(false)
     }
 
     private func tearDown() {
@@ -48,7 +45,6 @@ final class WebSocketManager {
                 self.receive()
             } catch {
                 guard let self else { return }
-                self.onConnectionChange?(false)
                 self.scheduleReconnect()
             }
         }

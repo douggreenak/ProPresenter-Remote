@@ -16,7 +16,8 @@ final class ProPresenterViewModel {
     var livePresentationUUID: String = ""
     private var userOverrodeSelection: Bool = false
     var isConnected: Bool = false
-    var isWebSocketConnected: Bool = false
+    var connectionHealthy: Bool = false
+    private var pollFailureCount: Int = 0
     var connectionError: String?
     var showSettings: Bool = false
     var host: String {
@@ -69,9 +70,6 @@ final class ProPresenterViewModel {
         webSocket.onSlideChanged = { [weak self] in
             Task { await self?.fetchSlideStatus() }
         }
-        webSocket.onConnectionChange = { [weak self] connected in
-            self?.isWebSocketConnected = connected
-        }
     }
 
     // MARK: - Connection
@@ -89,6 +87,8 @@ final class ProPresenterViewModel {
                 return
             }
             isConnected = true
+            connectionHealthy = true
+            pollFailureCount = 0
             webSocket.connect(host: host, port: portInt)
             await refreshAll()
             startPolling()
@@ -206,9 +206,29 @@ final class ProPresenterViewModel {
     }
 
     func fetchSlideStatus() async {
-        guard let status = try? await api.fetchSlideIndex(host: host, port: portInt) else { return }
+        guard let status = try? await api.fetchSlideIndex(host: host, port: portInt) else {
+            pollFailureCount += 1
+            if pollFailureCount >= 5 {
+                connectionHealthy = false
+            }
+            return
+        }
+
+        pollFailureCount = 0
+        connectionHealthy = true
+
         let previousUUID = livePresentationUUID
-        liveSlideIndex = status.slideIndex
+        let triggerIdx = status.slideIndex
+
+        if let pres = selectedPresentation,
+           pres.uuid == (status.presentationUUID ?? livePresentationUUID),
+           let candidates = pres.triggerToDisplayMap[triggerIdx],
+           !candidates.isEmpty {
+            liveSlideIndex = candidates.first(where: { $0 >= liveSlideIndex }) ?? candidates.first!
+        } else {
+            liveSlideIndex = triggerIdx
+        }
+
         if let uuid = status.presentationUUID {
             livePresentationUUID = uuid
             if uuid != previousUUID {
@@ -242,24 +262,26 @@ final class ProPresenterViewModel {
     // MARK: - Actions (only called by explicit user interaction)
 
     func triggerSlide(at index: Int) async {
-        guard let pres = selectedPresentation else { return }
+        guard let pres = selectedPresentation,
+              let slide = pres.slides[safe: index],
+              let triggerIdx = slide.triggerIndex else { return }
         liveSlideIndex = index
         livePresentationUUID = pres.uuid
-        try? await api.triggerSlide(host: host, port: portInt, uuid: pres.uuid, index: index)
+        try? await api.triggerSlide(host: host, port: portInt, uuid: pres.uuid, index: triggerIdx)
         await fetchSlideStatus()
     }
 
     func triggerNext() async {
         guard let pres = selectedPresentation else { return }
         let currentIndex = isViewingLivePresentation ? liveSlideIndex : -1
-        guard let next = pres.slides.first(where: { $0.index > currentIndex && $0.enabled }) else { return }
+        guard let next = pres.slides.first(where: { $0.index > currentIndex && $0.enabled && $0.triggerIndex != nil }) else { return }
         await triggerSlide(at: next.index)
     }
 
     func triggerPrevious() async {
         guard let pres = selectedPresentation else { return }
         let currentIndex = isViewingLivePresentation ? liveSlideIndex : pres.slides.count
-        guard let prev = pres.slides.last(where: { $0.index < currentIndex && $0.enabled }) else { return }
+        guard let prev = pres.slides.last(where: { $0.index < currentIndex && $0.enabled && $0.triggerIndex != nil }) else { return }
         await triggerSlide(at: prev.index)
     }
 
@@ -277,8 +299,8 @@ final class ProPresenterViewModel {
         await selectPresentation(playlistItems[idx - 1])
     }
 
-    func thumbnailURL(for index: Int) -> URL? {
-        guard index >= 0, let pres = selectedPresentation else { return nil }
+    func thumbnailURL(for index: Int?) -> URL? {
+        guard let index, let pres = selectedPresentation else { return nil }
         return api.thumbnailURL(host: host, port: portInt, uuid: pres.uuid, index: index)
     }
 

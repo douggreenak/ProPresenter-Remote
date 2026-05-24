@@ -88,7 +88,11 @@ struct SlideGridView: View {
         HStack {
             Spacer()
             HStack(spacing: 16) {
-                Button { Task { await viewModel.triggerSlide(at: 0) } } label: {
+                Button {
+                    if let first = viewModel.selectedPresentation?.slides.first(where: { $0.triggerIndex != nil }) {
+                        Task { await viewModel.triggerSlide(at: first.index) }
+                    }
+                } label: {
                     Image(systemName: "backward.end.fill")
                         .font(.system(size: 11))
                         .foregroundColor(Color(white: 0.5))
@@ -121,7 +125,7 @@ struct SlideGridView: View {
                 .buttonStyle(.plain)
 
                 Button {
-                    if let last = viewModel.selectedPresentation?.slides.last {
+                    if let last = viewModel.selectedPresentation?.slides.last(where: { $0.triggerIndex != nil }) {
                         Task { await viewModel.triggerSlide(at: last.index) }
                     }
                 } label: {
@@ -164,7 +168,7 @@ private struct SlideCell: View {
     }
 
     var body: some View {
-        Button(action: { if slide.enabled { onTap() } }) {
+        Button(action: { if slide.enabled && slide.triggerIndex != nil { onTap() } }) {
             VStack(alignment: .leading, spacing: 0) {
                 Group {
                     if let thumbnailURL {
@@ -213,11 +217,11 @@ private struct SlideCell: View {
                         lineWidth: isLive ? 2.5 : 0.5
                     )
             )
-            .opacity(!slide.enabled ? 0.35 : isHovered ? 0.85 : 1.0)
+            .opacity(!slide.enabled || slide.triggerIndex == nil ? 0.35 : isHovered ? 0.85 : 1.0)
             .animation(.easeOut(duration: 0.1), value: isHovered)
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
-        .allowsHitTesting(slide.enabled)
+        .allowsHitTesting(slide.enabled && slide.triggerIndex != nil)
     }
 }

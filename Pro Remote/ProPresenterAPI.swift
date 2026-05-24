@@ -99,9 +99,8 @@ actor ProPresenterAPI {
     // MARK: - Mapping
 
     private func mapPayload(_ p: PresentationPayload, arrangementUUID: String? = nil) -> Presentation {
-        // Build lookup: group UUID → (group, raw thumbnail start index)
+        var groupByUUID: [String: (group: SlideGroupPayload, rawStart: Int)] = [:]
         var rawStart = 0
-        var groupByUUID: [String: (group: SlideGroupPayload, rawThumbStart: Int)] = [:]
         for group in p.groups {
             if let uuid = group.uuid {
                 groupByUUID[uuid] = (group, rawStart)
@@ -109,52 +108,75 @@ actor ProPresenterAPI {
             rawStart += group.slides.count
         }
 
-        // When current_arrangement is set, ProPresenter indexes thumbnails by that
-        // arrangement's slide order. Build a mapping from (groupUUID, slideOffset) →
-        // thumbnail index so we can look up the correct thumbnail for any arrangement.
-        var thumbnailMap: [String: Int]?
-        if let ca = p.currentArrangement, !ca.isEmpty,
-           let caArr = p.arrangements?.first(where: { $0.id.uuid == ca }) {
-            var map: [String: Int] = [:]
-            var caIdx = 0
-            for groupUUID in caArr.groups {
-                if let entry = groupByUUID[groupUUID] {
-                    for offset in 0..<entry.group.slides.count {
-                        let key = "\(groupUUID)-\(offset)"
-                        if map[key] == nil {
-                            map[key] = caIdx
-                        }
-                        caIdx += 1
-                    }
-                }
-            }
-            thumbnailMap = map
-        }
-
-        // Resolve which arrangement to display
         let effectiveArrUUID = arrangementUUID ?? p.currentArrangement
-        let arrangement = effectiveArrUUID.flatMap { arrUUID -> ArrangementPayload? in
+        let displayArrangement = effectiveArrUUID.flatMap { arrUUID -> ArrangementPayload? in
             guard !arrUUID.isEmpty else { return nil }
             return p.arrangements?.first { $0.id.uuid == arrUUID }
         }
 
+        let currentArrUUID = p.currentArrangement ?? ""
+        let triggerArrangement = currentArrUUID.isEmpty ? nil : p.arrangements?.first { $0.id.uuid == currentArrUUID }
+
+        // Build trigger context: the ordered slides that the API trigger/thumbnail endpoints use.
+        // When current_arrangement is set, trigger indices follow that arrangement.
+        // When empty, trigger indices follow raw group order.
+        typealias TriggerEntry = (groupUUID: String, slideOffset: Int, triggerIndex: Int)
+        var triggerContext: [TriggerEntry] = []
+
+        if let triggerArrangement {
+            var tIdx = 0
+            for gUUID in triggerArrangement.groups {
+                guard let entry = groupByUUID[gUUID] else { continue }
+                for offset in 0..<entry.group.slides.count {
+                    triggerContext.append((gUUID, offset, tIdx))
+                    tIdx += 1
+                }
+            }
+        } else {
+            var tIdx = 0
+            for group in p.groups {
+                guard let gUUID = group.uuid else { continue }
+                for offset in 0..<group.slides.count {
+                    triggerContext.append((gUUID, offset, tIdx))
+                    tIdx += 1
+                }
+            }
+        }
+
+        // Group trigger entries by (groupUUID, slideOffset) preserving order
+        var triggerLookup: [String: [Int]] = [:]
+        for entry in triggerContext {
+            let key = "\(entry.groupUUID)|\(entry.slideOffset)"
+            triggerLookup[key, default: []].append(entry.triggerIndex)
+        }
+
+        // Track how many times each (group, offset) pair has been seen in the display arrangement
+        var occurrenceCounters: [String: Int] = [:]
+
         var idx = 0
         var slides: [Slide] = []
+        var triggerToDisplay: [Int: [Int]] = [:]
 
-        if let arrangement {
-            for groupUUID in arrangement.groups {
+        if let displayArrangement {
+            for groupUUID in displayArrangement.groups {
                 guard let entry = groupByUUID[groupUUID] else { continue }
                 let group = entry.group
                 let color: Color? = group.color.map {
                     Color(red: $0.red, green: $0.green, blue: $0.blue, opacity: $0.alpha)
                 }
                 for (offset, s) in group.slides.enumerated() {
-                    let thumbIdx: Int
-                    if let map = thumbnailMap {
-                        thumbIdx = map["\(groupUUID)-\(offset)"] ?? -1
-                    } else {
-                        thumbIdx = entry.rawThumbStart + offset
+                    let key = "\(groupUUID)|\(offset)"
+                    let occurrence = occurrenceCounters[key, default: 0]
+                    occurrenceCounters[key] = occurrence + 1
+
+                    let availableTriggers = triggerLookup[key] ?? []
+                    let triggerIdx: Int? = availableTriggers.isEmpty ? nil :
+                        availableTriggers[occurrence % availableTriggers.count]
+
+                    if let triggerIdx {
+                        triggerToDisplay[triggerIdx, default: []].append(idx)
                     }
+
                     slides.append(Slide(
                         id: idx,
                         text: s.text,
@@ -163,18 +185,21 @@ actor ProPresenterAPI {
                         enabled: s.enabled ?? true,
                         groupName: group.name,
                         groupColor: color,
-                        thumbnailIndex: thumbIdx
+                        thumbnailIndex: triggerIdx,
+                        triggerIndex: triggerIdx
                     ))
                     idx += 1
                 }
             }
         } else {
-            var thumbIdx = 0
             for group in p.groups {
                 let color: Color? = group.color.map {
                     Color(red: $0.red, green: $0.green, blue: $0.blue, opacity: $0.alpha)
                 }
-                for s in group.slides {
+                for (offset, s) in group.slides.enumerated() {
+                    let tIdx = idx
+                    triggerToDisplay[tIdx, default: []].append(idx)
+
                     slides.append(Slide(
                         id: idx,
                         text: s.text,
@@ -183,14 +208,14 @@ actor ProPresenterAPI {
                         enabled: s.enabled ?? true,
                         groupName: group.name,
                         groupColor: color,
-                        thumbnailIndex: thumbIdx
+                        thumbnailIndex: tIdx,
+                        triggerIndex: tIdx
                     ))
                     idx += 1
-                    thumbIdx += 1
                 }
             }
         }
 
-        return Presentation(uuid: p.id.uuid, name: p.id.name, index: p.id.index, slides: slides, arrangementUUID: arrangementUUID)
+        return Presentation(uuid: p.id.uuid, name: p.id.name, index: p.id.index, slides: slides, arrangementUUID: arrangementUUID, triggerToDisplayMap: triggerToDisplay)
     }
 }

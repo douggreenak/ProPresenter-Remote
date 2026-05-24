@@ -37,7 +37,7 @@ struct ContentView: View {
             ToolbarItem(placement: .automatic) {
                 ConnectionStatusBadge(
                     isConnected: viewModel.isConnected,
-                    isWebSocketConnected: viewModel.isWebSocketConnected
+                    isHealthy: viewModel.connectionHealthy
                 )
             }
 
@@ -88,22 +88,22 @@ struct ContentView: View {
 
 private struct ConnectionStatusBadge: View {
     let isConnected: Bool
-    let isWebSocketConnected: Bool
+    let isHealthy: Bool
 
     private var color: Color {
-        if isConnected && isWebSocketConnected { return .green }
+        if isConnected && isHealthy { return .green }
         if isConnected { return .yellow }
         return .red
     }
 
     private var label: String {
-        if isConnected && isWebSocketConnected { return "Live" }
-        if isConnected { return "REST" }
+        if isConnected && isHealthy { return "Connected" }
+        if isConnected { return "Connecting" }
         return "Offline"
     }
 
     private var icon: String {
-        if isConnected && isWebSocketConnected { return "antenna.radiowaves.left.and.right" }
+        if isConnected && isHealthy { return "antenna.radiowaves.left.and.right" }
         if isConnected { return "network" }
         return "wifi.slash"
     }
