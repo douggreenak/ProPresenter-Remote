@@ -40,6 +40,7 @@ final class ProPresenterViewModel {
     private let api = ProPresenterAPI()
     private let webSocket = WebSocketManager()
     private var pollTask: Task<Void, Never>?
+    private var presentationCache: [String: Presentation] = [:]
 
     // MARK: - Computed
 
@@ -141,6 +142,7 @@ final class ProPresenterViewModel {
         selectedPlaylist = nil
         playlistItems = []
         selectedPresentation = nil
+        presentationCache.removeAll()
     }
 
     func testConnection() async -> Bool {
@@ -169,6 +171,7 @@ final class ProPresenterViewModel {
     // MARK: - Data Loading
 
     func refreshAll() async {
+        presentationCache.removeAll()
         await fetchPlaylists()
         await fetchActivePresentation()
         await fetchSlideStatus()
@@ -202,6 +205,9 @@ final class ProPresenterViewModel {
         let previousLiveUUID = livePresentationUUID
         livePresentationUUID = active.uuid
 
+        let cacheKey = "\(active.uuid)|\(active.arrangementUUID ?? "")"
+        presentationCache[cacheKey] = active
+
         if !userOverrodeSelection || selectedPresentation == nil {
             if !playlistItems.contains(where: { $0.uuid == active.uuid }) || selectedPlaylist == nil {
                 await findAndSelectPlaylistContaining(active.uuid)
@@ -209,6 +215,8 @@ final class ProPresenterViewModel {
                    active.arrangementUUID != arrUUID,
                    let corrected = try? await api.fetchActivePresentation(host: host, port: portInt, arrangementUUID: arrUUID) {
                     active = corrected
+                    let correctedKey = "\(active.uuid)|\(active.arrangementUUID ?? "")"
+                    presentationCache[correctedKey] = active
                 }
             }
             active.itemUUID = playlistItems.first(where: { $0.uuid == active.uuid })?.itemUUID
@@ -221,6 +229,8 @@ final class ProPresenterViewModel {
                 if matchingItem.arrangementUUID != active.arrangementUUID,
                    let corrected = try? await api.fetchActivePresentation(host: host, port: portInt, arrangementUUID: matchingItem.arrangementUUID) {
                     active = corrected
+                    let correctedKey = "\(active.uuid)|\(active.arrangementUUID ?? "")"
+                    presentationCache[correctedKey] = active
                 }
                 active.itemUUID = matchingItem.itemUUID
                 selectedPresentation = active
@@ -289,9 +299,29 @@ final class ProPresenterViewModel {
     private func loadPresentation(_ presentation: Presentation) async {
         if presentation.uuid == selectedPresentation?.uuid &&
            presentation.listID == selectedPresentation?.listID { return }
+
+        let cacheKey = "\(presentation.uuid)|\(presentation.arrangementUUID ?? "")"
+
+        if var cached = presentationCache[cacheKey] {
+            cached.itemUUID = presentation.itemUUID
+            selectedPresentation = cached
+            return
+        }
+
+        if presentation.uuid == livePresentationUUID {
+            do {
+                var full = try await api.fetchActivePresentation(host: host, port: portInt, arrangementUUID: presentation.arrangementUUID)
+                full.itemUUID = presentation.itemUUID
+                presentationCache[cacheKey] = full
+                selectedPresentation = full
+                return
+            } catch { }
+        }
+
         do {
             var full = try await api.fetchPresentation(host: host, port: portInt, uuid: presentation.uuid, arrangementUUID: presentation.arrangementUUID)
             full.itemUUID = presentation.itemUUID
+            presentationCache[cacheKey] = full
             selectedPresentation = full
         } catch {
             selectedPresentation = presentation
@@ -311,6 +341,7 @@ final class ProPresenterViewModel {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         #endif
         try? await api.triggerSlide(host: host, port: portInt, uuid: pres.uuid, index: triggerIdx)
+        try? await api.focusPresentation(host: host, port: portInt, uuid: pres.uuid)
     }
 
     func triggerNext() async {

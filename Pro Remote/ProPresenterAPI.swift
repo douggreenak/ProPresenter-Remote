@@ -89,6 +89,11 @@ actor ProPresenterAPI {
         _ = try await session.data(from: url)
     }
 
+    func focusPresentation(host: String, port: Int, uuid: String) async throws {
+        let url = try buildURL(host, port, path: "/v1/presentation/\(uuid)")
+        _ = try await session.data(from: url)
+    }
+
     // MARK: - Thumbnails
 
     nonisolated func thumbnailURL(host: String, port: Int, uuid: String, index: Int) -> URL? {
