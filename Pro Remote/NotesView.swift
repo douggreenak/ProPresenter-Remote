@@ -10,17 +10,18 @@ struct NotesView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     HStack {
                         Text("CURRENT")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundColor(Color(white: 0.4))
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(ProPresenterViewModel.liveColor)
                         Spacer()
                         if let total = viewModel.selectedPresentation?.slides.count {
                             Text("Slide \(slide.index + 1) of \(total)")
-                                .font(.system(size: 9))
-                                .foregroundColor(Color(white: 0.35))
+                                .font(.system(size: 10))
+                                .foregroundColor(Color(white: 0.4))
+                                .contentTransition(.numericText())
                         }
                     }
                     .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
+                    .padding(.vertical, 5)
 
                     if let url = viewModel.thumbnailURL(for: slide.thumbnailIndex) {
                         AsyncImage(url: url) { image in
@@ -28,7 +29,11 @@ struct NotesView: View {
                         } placeholder: {
                             Rectangle().fill(Color(white: 0.13)).aspectRatio(16 / 9, contentMode: .fit)
                         }
-                        .overlay(Rectangle().strokeBorder(ProPresenterViewModel.liveColor, lineWidth: 2))
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .strokeBorder(ProPresenterViewModel.liveColor, lineWidth: 2)
+                        )
                         .padding(.horizontal, 8)
                     }
                 }
@@ -38,12 +43,12 @@ struct NotesView: View {
                     VStack(alignment: .leading, spacing: 0) {
                         HStack {
                             Text("NEXT")
-                                .font(.system(size: 9, weight: .bold))
-                                .foregroundColor(Color(white: 0.4))
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(Color(white: 0.5))
                             Spacer()
                         }
                         .padding(.horizontal, 8)
-                        .padding(.top, 6)
+                        .padding(.top, 8)
                         .padding(.bottom, 4)
 
                         if let nextSlide = viewModel.selectedPresentation?.slides[safe: nextIndex],
@@ -53,13 +58,31 @@ struct NotesView: View {
                             } placeholder: {
                                 Rectangle().fill(Color(white: 0.13)).aspectRatio(16 / 9, contentMode: .fit)
                             }
-                            .overlay(Rectangle().strokeBorder(Color(white: 0.28), lineWidth: 1))
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 4)
+                                    .strokeBorder(Color(white: 0.28), lineWidth: 1)
+                            )
                             .padding(.horizontal, 8)
                         }
                     }
                 }
 
-                // Notes / text section
+                if !slide.groupName.isEmpty {
+                    HStack(spacing: 5) {
+                        if let color = slide.groupColor {
+                            RoundedRectangle(cornerRadius: 1.5)
+                                .fill(color)
+                                .frame(width: 4, height: 14)
+                        }
+                        Text(slide.groupName)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(Color(white: 0.5))
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.top, 6)
+                }
+
                 ScrollView {
                     VStack(alignment: .leading, spacing: 8) {
                         if !slide.text.isEmpty {
@@ -89,24 +112,16 @@ struct NotesView: View {
 
                 Spacer(minLength: 0)
             } else {
-                Spacer()
-                HStack {
-                    Spacer()
-                    VStack(spacing: 8) {
-                        Image(systemName: "rectangle.slash")
-                            .font(.system(size: 28))
-                            .foregroundColor(Color(white: 0.25))
-                        Text("No Active Slide")
-                            .font(.system(size: 12))
-                            .foregroundColor(Color(white: 0.3))
-                    }
-                    Spacer()
+                ContentUnavailableView {
+                    Label("No Active Slide", systemImage: "play.slash")
+                } description: {
+                    Text("Trigger a slide to see its details here.")
                 }
-                Spacer()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(white: 0.08))
+        .animation(.easeInOut(duration: 0.2), value: viewModel.liveSlideIndex)
         .navigationTitle("Output")
     }
 }

@@ -1,5 +1,8 @@
 import Foundation
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 @Observable
 @MainActor
@@ -16,6 +19,7 @@ final class ProPresenterViewModel {
     var livePresentationUUID: String = ""
     private var userOverrodeSelection: Bool = false
     var isConnected: Bool = false
+    var isLoading: Bool = false
     var connectionHealthy: Bool = false
     private var pollFailureCount: Int = 0
     private var lastUserTrigger: ContinuousClock.Instant?
@@ -61,6 +65,18 @@ final class ProPresenterViewModel {
         return liveSlideIndex + 1
     }
 
+    var canTriggerNext: Bool {
+        guard let pres = selectedPresentation else { return false }
+        let currentIndex = isViewingLivePresentation ? liveSlideIndex : -1
+        return pres.slides.contains { $0.index > currentIndex && $0.enabled && $0.triggerIndex != nil }
+    }
+
+    var canTriggerPrevious: Bool {
+        guard let pres = selectedPresentation else { return false }
+        let currentIndex = isViewingLivePresentation ? liveSlideIndex : pres.slides.count
+        return pres.slides.contains { $0.index < currentIndex && $0.enabled && $0.triggerIndex != nil }
+    }
+
     // MARK: - Init
 
     init() {
@@ -80,7 +96,10 @@ final class ProPresenterViewModel {
             connectionError = "Enter a host address"
             return
         }
+        guard !isLoading else { return }
         connectionError = nil
+        isLoading = true
+        defer { isLoading = false }
         do {
             let ok = try await api.testConnection(host: host, port: portInt)
             guard ok else {
@@ -104,6 +123,8 @@ final class ProPresenterViewModel {
         pollTask = nil
         webSocket.disconnect()
         isConnected = false
+        connectionHealthy = false
+        connectionError = nil
         playlists = []
         selectedPlaylist = nil
         playlistItems = []
@@ -272,6 +293,9 @@ final class ProPresenterViewModel {
         liveSlideIndex = index
         livePresentationUUID = pres.uuid
         lastUserTrigger = .now
+        #if os(iOS)
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        #endif
         try? await api.triggerSlide(host: host, port: portInt, uuid: pres.uuid, index: triggerIdx)
     }
 
@@ -287,6 +311,16 @@ final class ProPresenterViewModel {
         let currentIndex = isViewingLivePresentation ? liveSlideIndex : pres.slides.count
         guard let prev = pres.slides.last(where: { $0.index < currentIndex && $0.enabled && $0.triggerIndex != nil }) else { return }
         await triggerSlide(at: prev.index)
+    }
+
+    func goToLive() async {
+        guard !livePresentationUUID.isEmpty else { return }
+        userOverrodeSelection = false
+        if let liveItem = playlistItems.first(where: { $0.uuid == livePresentationUUID }) {
+            await loadPresentation(liveItem)
+        } else {
+            await fetchActivePresentation()
+        }
     }
 
     func selectNextPresentation() async {

@@ -15,9 +15,9 @@ struct ContentView: View {
         }
         .focusable()
         .focusEffectDisabled()
-        .onKeyPress(keys: [.leftArrow, .rightArrow, .upArrow, .downArrow]) { press in
+        .onKeyPress(keys: [.leftArrow, .rightArrow, .upArrow, .downArrow, .space, .return, .escape]) { press in
             switch press.key {
-            case .rightArrow:
+            case .rightArrow, .space, .return:
                 Task { await viewModel.triggerNext() }
                 return .handled
             case .leftArrow:
@@ -29,6 +29,11 @@ struct ContentView: View {
             case .upArrow:
                 Task { await viewModel.selectPreviousPresentation() }
                 return .handled
+            case .escape:
+                if !viewModel.isViewingLivePresentation {
+                    Task { await viewModel.goToLive() }
+                }
+                return .handled
             default:
                 return .ignored
             }
@@ -37,7 +42,8 @@ struct ContentView: View {
             ToolbarItem(placement: .automatic) {
                 ConnectionStatusBadge(
                     isConnected: viewModel.isConnected,
-                    isHealthy: viewModel.connectionHealthy
+                    isHealthy: viewModel.connectionHealthy,
+                    host: viewModel.host
                 )
             }
 
@@ -89,6 +95,7 @@ struct ContentView: View {
 private struct ConnectionStatusBadge: View {
     let isConnected: Bool
     let isHealthy: Bool
+    var host: String = ""
 
     private var color: Color {
         if isConnected && isHealthy { return .green }
@@ -98,7 +105,7 @@ private struct ConnectionStatusBadge: View {
 
     private var label: String {
         if isConnected && isHealthy { return "Connected" }
-        if isConnected { return "Connecting" }
+        if isConnected { return "Reconnecting" }
         return "Offline"
     }
 
@@ -110,9 +117,9 @@ private struct ConnectionStatusBadge: View {
 
     var body: some View {
         HStack(spacing: 5) {
-            Image(systemName: icon)
-                .font(.caption2)
-                .foregroundStyle(color)
+            Circle()
+                .fill(color)
+                .frame(width: 7, height: 7)
             Text(label)
                 .font(.caption2.weight(.medium))
                 .foregroundStyle(.secondary)
@@ -121,6 +128,12 @@ private struct ConnectionStatusBadge: View {
         .padding(.vertical, 4)
         .background(.quaternary.opacity(0.5), in: Capsule())
         .fixedSize()
+        .animation(.easeInOut(duration: 0.5), value: isConnected)
+        .animation(.easeInOut(duration: 0.5), value: isHealthy)
+        .help(isConnected && !host.isEmpty ? host : "Not connected")
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Connection status: \(label)")
+        .accessibilityValue(isConnected && !host.isEmpty ? host : "")
     }
 }
 

@@ -8,6 +8,7 @@ struct Pro_RemoteApp: App {
         WindowGroup {
             ContentView()
                 .environment(viewModel)
+                .preferredColorScheme(.dark)
                 #if os(macOS)
                 .frame(minWidth: 900, minHeight: 600)
                 #endif

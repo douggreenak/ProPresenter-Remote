@@ -15,10 +15,17 @@ actor ProPresenterAPI {
         "http://\(host):\(port)"
     }
 
+    private func buildURL(_ host: String, _ port: Int, path: String) throws -> URL {
+        guard let url = URL(string: "\(base(host, port))\(path)") else {
+            throw URLError(.badURL)
+        }
+        return url
+    }
+
     // MARK: - Playlists
 
     func fetchPlaylists(host: String, port: Int) async throws -> [Playlist] {
-        let url = URL(string: "\(base(host, port))/v1/playlists")!
+        let url = try buildURL(host, port, path: "/v1/playlists")
         let (data, _) = try await session.data(from: url)
         let nodes = try JSONDecoder().decode([PlaylistNode].self, from: data)
         return nodes.compactMap { node in
@@ -28,7 +35,7 @@ actor ProPresenterAPI {
     }
 
     func fetchPlaylistItems(host: String, port: Int, uuid: String) async throws -> [Presentation] {
-        let url = URL(string: "\(base(host, port))/v1/playlist/\(uuid)")!
+        let url = try buildURL(host, port, path: "/v1/playlist/\(uuid)")
         let (data, _) = try await session.data(from: url)
         let node = try JSONDecoder().decode(PlaylistNode.self, from: data)
         return node.allPresentations()
@@ -37,7 +44,7 @@ actor ProPresenterAPI {
     // MARK: - Active Presentation
 
     func fetchActivePresentation(host: String, port: Int, arrangementUUID: String? = nil) async throws -> Presentation {
-        let url = URL(string: "\(base(host, port))/v1/presentation/active")!
+        let url = try buildURL(host, port, path: "/v1/presentation/active")
         let (data, _) = try await session.data(from: url)
         let response = try JSONDecoder().decode(ActivePresentationResponse.self, from: data)
         return mapPayload(response.presentation, arrangementUUID: arrangementUUID)
@@ -46,7 +53,7 @@ actor ProPresenterAPI {
     // MARK: - Fetch Presentation by UUID (read-only)
 
     func fetchPresentation(host: String, port: Int, uuid: String, arrangementUUID: String? = nil) async throws -> Presentation {
-        let url = URL(string: "\(base(host, port))/v1/presentation/\(uuid)")!
+        let url = try buildURL(host, port, path: "/v1/presentation/\(uuid)")
         let (data, _) = try await session.data(from: url)
         let decoder = JSONDecoder()
         if let wrapped = try? decoder.decode(ActivePresentationResponse.self, from: data) {
@@ -59,7 +66,7 @@ actor ProPresenterAPI {
     // MARK: - Slide Status
 
     func fetchSlideIndex(host: String, port: Int) async throws -> (slideIndex: Int, presentationUUID: String?) {
-        let url = URL(string: "\(base(host, port))/v1/presentation/slide_index")!
+        let url = try buildURL(host, port, path: "/v1/presentation/slide_index")
         let (data, _) = try await session.data(from: url)
         let r = try JSONDecoder().decode(SlideIndexPayload.self, from: data)
         return (r.presentationIndex?.index ?? 0, r.presentationIndex?.presentationId?.uuid)
@@ -68,17 +75,17 @@ actor ProPresenterAPI {
     // MARK: - Triggers
 
     func triggerNext(host: String, port: Int) async throws {
-        let url = URL(string: "\(base(host, port))/v1/trigger/next")!
+        let url = try buildURL(host, port, path: "/v1/trigger/next")
         _ = try await session.data(from: url)
     }
 
     func triggerPrevious(host: String, port: Int) async throws {
-        let url = URL(string: "\(base(host, port))/v1/trigger/previous")!
+        let url = try buildURL(host, port, path: "/v1/trigger/previous")
         _ = try await session.data(from: url)
     }
 
     func triggerSlide(host: String, port: Int, uuid: String, index: Int) async throws {
-        let url = URL(string: "\(base(host, port))/v1/presentation/\(uuid)/trigger/\(index)")!
+        let url = try buildURL(host, port, path: "/v1/presentation/\(uuid)/trigger/\(index)")
         _ = try await session.data(from: url)
     }
 
@@ -91,7 +98,7 @@ actor ProPresenterAPI {
     // MARK: - Connection Test
 
     func testConnection(host: String, port: Int) async throws -> Bool {
-        let url = URL(string: "\(base(host, port))/v1/presentation/slide_index")!
+        let url = try buildURL(host, port, path: "/v1/presentation/slide_index")
         let (_, resp) = try await session.data(from: url)
         return (resp as? HTTPURLResponse)?.statusCode == 200
     }

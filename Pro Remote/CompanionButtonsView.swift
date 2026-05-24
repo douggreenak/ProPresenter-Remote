@@ -16,6 +16,9 @@ struct CompanionButtonsView: View {
                         .frame(minWidth: 44, minHeight: 28)
                 }
                 .buttonStyle(.glass)
+                .disabled(button.url == nil)
+                .accessibilityLabel("Trigger \(button.label)")
+                .accessibilityHint(button.urlString.isEmpty ? "No URL configured" : "")
             }
 
             Button {

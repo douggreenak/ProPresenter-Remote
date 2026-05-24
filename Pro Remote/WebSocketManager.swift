@@ -6,6 +6,7 @@ final class WebSocketManager {
     private let session = URLSession(configuration: .default)
     private var reconnectWork: Task<Void, Never>?
     private var shouldReconnect = false
+    private var reconnectAttempts = 0
     private var host = ""
     private var port = 1025
 
@@ -15,6 +16,7 @@ final class WebSocketManager {
         self.host = host
         self.port = port
         shouldReconnect = true
+        reconnectAttempts = 0
         tearDown()
 
         guard let url = URL(string: "ws://\(host):\(port)/v1/status/slide") else { return }
@@ -51,13 +53,16 @@ final class WebSocketManager {
     }
 
     private func handle(_ message: URLSessionWebSocketTask.Message) {
+        reconnectAttempts = 0
         onSlideChanged?()
     }
 
     private func scheduleReconnect() {
         guard shouldReconnect else { return }
+        let delay = min(3.0 * pow(2.0, Double(reconnectAttempts)), 30.0)
+        reconnectAttempts += 1
         reconnectWork = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(3))
+            try? await Task.sleep(for: .seconds(delay))
             guard !Task.isCancelled, let self else { return }
             self.connect(host: self.host, port: self.port)
         }

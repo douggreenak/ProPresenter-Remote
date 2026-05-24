@@ -16,11 +16,17 @@ struct SettingsView: View {
                     .keyboardType(.URL)
                     .textInputAutocapitalization(.never)
                     #endif
+                    .onChange(of: viewModel.host) { _, _ in testResult = nil }
 
                 TextField("Port", text: $vm.port)
                     #if os(iOS)
                     .keyboardType(.numberPad)
                     #endif
+                    .onChange(of: viewModel.port) { _, newValue in
+                        let filtered = newValue.filter(\.isNumber)
+                        if filtered != newValue { viewModel.port = filtered }
+                        testResult = nil
+                    }
             }
 
             Section {
@@ -47,27 +53,36 @@ struct SettingsView: View {
                         viewModel.disconnect()
                     }
                 } else {
-                    Button("Connect") {
+                    Button {
                         Task { await viewModel.connect() }
+                    } label: {
+                        HStack {
+                            Text("Connect")
+                            if viewModel.isLoading {
+                                Spacer()
+                                ProgressView()
+                            }
+                        }
                     }
+                    .disabled(viewModel.isLoading || viewModel.host.isEmpty)
                 }
             }
 
             Section("Status") {
                 HStack {
                     Circle()
-                        .fill(viewModel.isConnected ? .green : .red)
+                        .fill(viewModel.isConnected && viewModel.connectionHealthy ? .green : viewModel.isConnected ? .yellow : .red)
                         .frame(width: 10, height: 10)
-                    Text(viewModel.isConnected ? "Connected" : "Disconnected")
+                    Text(viewModel.isConnected && viewModel.connectionHealthy ? "Connected" : viewModel.isConnected ? "Reconnecting" : "Disconnected")
                         .foregroundStyle(.secondary)
                 }
             }
 
             if let error = viewModel.connectionError {
-                Section("Error") {
-                    Text(error)
+                Section {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.red)
-                        .font(.caption)
+                        .font(.callout)
                 }
             }
 
