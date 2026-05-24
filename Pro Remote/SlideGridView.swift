@@ -114,6 +114,18 @@ struct SlideGridView: View {
                             }
                         }
                     }
+                    .onChange(of: viewModel.isViewingLivePresentation) { _, isLive in
+                        if isLive {
+                            withAnimation(.easeInOut(duration: 0.3)) {
+                                proxy.scrollTo(viewModel.liveSlideIndex, anchor: .center)
+                            }
+                        }
+                    }
+                    .onChange(of: viewModel.selectedPresentation?.uuid) { _, _ in
+                        if viewModel.isViewingLivePresentation {
+                            proxy.scrollTo(viewModel.liveSlideIndex, anchor: .center)
+                        }
+                    }
                 }
 
                 transportBar

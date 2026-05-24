@@ -41,6 +41,7 @@ final class ProPresenterViewModel {
     private let webSocket = WebSocketManager()
     private var pollTask: Task<Void, Never>?
     private var presentationCache: [String: Presentation] = [:]
+    private var statusFetchID: UInt64 = 0
 
     // MARK: - Computed
 
@@ -250,6 +251,9 @@ final class ProPresenterViewModel {
     }
 
     func fetchSlideStatus() async {
+        statusFetchID += 1
+        let myFetchID = statusFetchID
+
         guard let status = try? await api.fetchSlideIndex(host: host, port: portInt) else {
             pollFailureCount += 1
             if pollFailureCount >= 5 {
@@ -257,6 +261,8 @@ final class ProPresenterViewModel {
             }
             return
         }
+
+        guard myFetchID == statusFetchID else { return }
 
         pollFailureCount = 0
         connectionHealthy = true
