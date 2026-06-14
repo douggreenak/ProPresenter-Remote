@@ -44,7 +44,9 @@ struct ContentView: View {
                     isConnected: viewModel.isConnected,
                     isHealthy: viewModel.connectionHealthy,
                     host: viewModel.host
-                )
+                ) {
+                    viewModel.showSettings = true
+                }
             }
 
             ToolbarItem(placement: .automatic) {
@@ -96,6 +98,9 @@ private struct ConnectionStatusBadge: View {
     let isConnected: Bool
     let isHealthy: Bool
     var host: String = ""
+    var onTap: () -> Void = {}
+
+    @State private var isHovered = false
 
     private var color: Color {
         if isConnected && isHealthy { return .green }
@@ -109,31 +114,47 @@ private struct ConnectionStatusBadge: View {
         return "Offline"
     }
 
-    private var icon: String {
-        if isConnected && isHealthy { return "antenna.radiowaves.left.and.right" }
-        if isConnected { return "network" }
-        return "wifi.slash"
-    }
-
     var body: some View {
-        HStack(spacing: 5) {
-            Circle()
-                .fill(color)
-                .frame(width: 7, height: 7)
-            Text(label)
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(.secondary)
+        Button(action: onTap) {
+            HStack(spacing: 5) {
+                ZStack {
+                    if isConnected && !isHealthy {
+                        Circle()
+                            .fill(color.opacity(0.4))
+                            .frame(width: 14, height: 14)
+                            .scaleEffect(isHovered ? 1.1 : 1.0)
+                    }
+                    Circle()
+                        .fill(color)
+                        .frame(width: 7, height: 7)
+                }
+                Text(label)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                Capsule()
+                    .fill(.quaternary.opacity(isHovered ? 0.8 : 0.5))
+            )
+            .overlay(
+                Capsule()
+                    .strokeBorder(color.opacity(isHovered ? 0.4 : 0), lineWidth: 1)
+            )
+            .fixedSize()
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(.quaternary.opacity(0.5), in: Capsule())
-        .fixedSize()
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .symbolEffect(.pulse, options: .repeating, isActive: isConnected && !isHealthy)
         .animation(.easeInOut(duration: 0.5), value: isConnected)
         .animation(.easeInOut(duration: 0.5), value: isHealthy)
-        .help(isConnected && !host.isEmpty ? host : "Not connected")
+        .animation(.easeOut(duration: 0.15), value: isHovered)
+        .help(isConnected && !host.isEmpty ? "\(host) — click to open Settings" : "Click to open Settings")
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Connection status: \(label)")
         .accessibilityValue(isConnected && !host.isEmpty ? host : "")
+        .accessibilityHint("Opens Settings")
     }
 }
 

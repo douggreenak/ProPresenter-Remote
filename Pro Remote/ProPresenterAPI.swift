@@ -121,17 +121,16 @@ actor ProPresenterAPI {
         }
 
         let effectiveArrUUID = arrangementUUID ?? p.currentArrangement
-        let displayArrangement = effectiveArrUUID.flatMap { arrUUID -> ArrangementPayload? in
+        let effectiveArrangement = effectiveArrUUID.flatMap { arrUUID -> ArrangementPayload? in
             guard !arrUUID.isEmpty else { return nil }
             return p.arrangements?.first { $0.id.uuid == arrUUID }
         }
-
-        let currentArrUUID = p.currentArrangement ?? ""
-        let triggerArrangement = currentArrUUID.isEmpty ? nil : p.arrangements?.first { $0.id.uuid == currentArrUUID }
+        let displayArrangement = effectiveArrangement
+        let triggerArrangement = effectiveArrangement
 
         // Build trigger context: the ordered slides that the API trigger/thumbnail endpoints use.
-        // When current_arrangement is set, trigger indices follow that arrangement.
-        // When empty, trigger indices follow raw group order.
+        // Both display and trigger use the same arrangement so repeated groups
+        // (e.g. a Chorus appearing twice) get distinct trigger indices.
         typealias TriggerEntry = (groupUUID: String, slideOffset: Int, triggerIndex: Int)
         var triggerContext: [TriggerEntry] = []
 

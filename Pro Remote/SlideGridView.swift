@@ -101,7 +101,19 @@ struct SlideGridView: View {
                         }
                         .padding(6)
                     }
-                    .background(Color(white: 0.12))
+                    .background(
+                        ZStack {
+                            Color(white: 0.10)
+                            RadialGradient(
+                                colors: [Color(white: 0.16), Color(white: 0.08)],
+                                center: .center,
+                                startRadius: 80,
+                                endRadius: 700
+                            )
+                            .opacity(0.7)
+                        }
+                        .ignoresSafeArea()
+                    )
                     .onAppear {
                         if viewModel.isViewingLivePresentation {
                             proxy.scrollTo(viewModel.liveSlideIndex, anchor: .center)
@@ -151,9 +163,34 @@ struct SlideGridView: View {
                     .font(.system(size: 16, weight: .bold))
                     .foregroundColor(.white)
                     .lineLimit(1)
-                Text("\(presentation.slides.count) slides")
-                    .font(.system(size: 11))
-                    .foregroundColor(Color(white: 0.45))
+                    .help(presentation.name)
+                HStack(spacing: 6) {
+                    Text("\(presentation.slides.count) slides")
+                        .font(.system(size: 11))
+                        .foregroundColor(Color(white: 0.45))
+
+                    if viewModel.isViewingLivePresentation,
+                       let current = presentation.slides[safe: viewModel.liveSlideIndex],
+                       !current.groupName.isEmpty {
+                        Text("·")
+                            .font(.system(size: 11))
+                            .foregroundColor(Color(white: 0.3))
+                        HStack(spacing: 4) {
+                            if let color = current.groupColor {
+                                Circle()
+                                    .fill(color)
+                                    .frame(width: 6, height: 6)
+                            }
+                            Text(current.groupName)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(Color(white: 0.7))
+                                .lineLimit(1)
+                                .contentTransition(.opacity)
+                        }
+                        .id(current.groupName)
+                        .transition(.opacity)
+                    }
+                }
             }
 
             Spacer()
@@ -163,10 +200,16 @@ struct SlideGridView: View {
                     .font(.system(size: 11))
                     .foregroundColor(Color(white: 0.4))
                 Slider(value: $slideMinWidth, in: 120...350, step: 10)
-                    .frame(width: 140)
+                    .frame(width: 120)
                 Image(systemName: "plus.magnifyingglass")
                     .font(.system(size: 11))
                     .foregroundColor(Color(white: 0.4))
+                Text("\(Int(slideMinWidth))")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundColor(Color(white: 0.5))
+                    .frame(width: 28, alignment: .trailing)
+                    .contentTransition(.numericText())
+                    .animation(.snappy(duration: 0.15), value: slideMinWidth)
             }
 
             if !viewModel.isViewingLivePresentation && !viewModel.livePresentationUUID.isEmpty {
@@ -208,39 +251,72 @@ struct SlideGridView: View {
         .animation(.easeInOut(duration: 0.3), value: viewModel.isViewingLivePresentation)
     }
 
-    private func transportButton(_ label: String, disabled: Bool, action: @escaping () -> Void) -> some View {
+    private func transportButton(_ label: String, icon: String? = nil, iconLeading: Bool = true, prominent: Bool = false, disabled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(label)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(disabled ? Color(white: 0.2) : .white)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(disabled ? Color(white: 0.1) : Color(white: 0.18))
-                )
-                .contentShape(Rectangle())
+            HStack(spacing: 5) {
+                if let icon, iconLeading {
+                    Image(systemName: icon)
+                        .font(.system(size: 10, weight: .bold))
+                }
+                Text(label)
+                    .font(.system(size: 13, weight: .semibold))
+                if let icon, !iconLeading {
+                    Image(systemName: icon)
+                        .font(.system(size: 10, weight: .bold))
+                }
+            }
+            .foregroundColor(disabled ? Color(white: 0.2) : (prominent ? .white : Color(white: 0.92)))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(buttonBackground(disabled: disabled, prominent: prominent))
+            )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(disabled)
     }
 
+    private func iconTransportButton(_ icon: String, label: String, disabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(disabled ? Color(white: 0.2) : Color(white: 0.85))
+                .frame(width: 32, height: 32)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(disabled ? Color(white: 0.1) : Color(white: 0.15))
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .accessibilityLabel(label)
+    }
+
+    private func buttonBackground(disabled: Bool, prominent: Bool) -> Color {
+        if disabled { return Color(white: 0.1) }
+        if prominent { return ProPresenterViewModel.liveColor.opacity(0.85) }
+        return Color(white: 0.18)
+    }
+
     private var transportBar: some View {
         HStack(spacing: 8) {
-            transportButton("Prev Item", disabled: !viewModel.canSelectPreviousPresentation) {
+            transportButton("Prev Item", icon: "chevron.up", disabled: !viewModel.canSelectPreviousPresentation) {
                 Task { await viewModel.selectPreviousPresentation() }
             }
 
             Spacer()
 
             HStack(spacing: 8) {
-                transportButton("First", disabled: !viewModel.canTriggerPrevious) {
+                iconTransportButton("backward.end.fill", label: "First slide", disabled: !viewModel.canTriggerPrevious) {
                     if let first = viewModel.selectedPresentation?.slides.first(where: { $0.triggerIndex != nil }) {
                         Task { await viewModel.triggerSlide(at: first.index) }
                     }
                 }
 
-                transportButton("Previous", disabled: !viewModel.canTriggerPrevious) {
+                transportButton("Previous", icon: "chevron.left", disabled: !viewModel.canTriggerPrevious) {
                     Task { await viewModel.triggerPrevious() }
                 }
 
@@ -255,11 +331,11 @@ struct SlideGridView: View {
                         .accessibilityLabel("Slide \(viewModel.liveSlideIndex + 1) of \(total)")
                 }
 
-                transportButton("Next", disabled: !viewModel.canTriggerNext) {
+                transportButton("Next", icon: "chevron.right", iconLeading: false, prominent: true, disabled: !viewModel.canTriggerNext) {
                     Task { await viewModel.triggerNext() }
                 }
 
-                transportButton("Last", disabled: !viewModel.canTriggerNext) {
+                iconTransportButton("forward.end.fill", label: "Last slide", disabled: !viewModel.canTriggerNext) {
                     if let last = viewModel.selectedPresentation?.slides.last(where: { $0.triggerIndex != nil }) {
                         Task { await viewModel.triggerSlide(at: last.index) }
                     }
@@ -268,7 +344,7 @@ struct SlideGridView: View {
 
             Spacer()
 
-            transportButton("Next Item", disabled: !viewModel.canSelectNextPresentation) {
+            transportButton("Next Item", icon: "chevron.down", iconLeading: false, disabled: !viewModel.canSelectNextPresentation) {
                 Task { await viewModel.selectNextPresentation() }
             }
         }
@@ -341,6 +417,14 @@ private struct SlideCell: View {
                     }
 
                     Spacer(minLength: 0)
+
+                    if !slide.notes.isEmpty {
+                        Image(systemName: "note.text")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundColor(Color(white: 0.55))
+                            .help("Has notes")
+                            .accessibilityLabel("Has notes")
+                    }
 
                     Text("\(slide.index + 1)")
                         .font(.system(size: 9, weight: .medium, design: .monospaced))
