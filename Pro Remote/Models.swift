@@ -173,10 +173,13 @@ struct Presentation: Identifiable, Hashable {
         self.triggerToDisplayMap = triggerToDisplayMap
     }
 
-    static func == (lhs: Presentation, rhs: Presentation) -> Bool {
-        lhs.uuid == rhs.uuid
-    }
-
+    // Equatable is synthesized on purpose: it must compare the slides too. @Observable
+    // suppresses the change notification when a new value compares equal to the old, so a
+    // uuid-only == made every slide edit (enabling/disabling one, say) invisible to SwiftUI —
+    // the model updated but the grid never repainted.
+    //
+    // Hashing only the uuid stays valid: equal presentations share a uuid, so they still
+    // hash alike. It just means same-uuid revisions collide, which is cheap and fine.
     func hash(into hasher: inout Hasher) {
         hasher.combine(uuid)
     }

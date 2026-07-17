@@ -158,15 +158,48 @@ final class ProPresenterViewModel {
 
     // MARK: - Polling
 
+    /// Poll ticks between content re-reads. The live slide index still updates every tick.
+    private static let contentRefreshTicks = 3
+
     private func startPolling() {
         pollTask?.cancel()
         pollTask = Task { [weak self] in
+            var tick = 0
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
                 guard !Task.isCancelled, let self else { return }
                 await self.fetchSlideStatus()
+                tick += 1
+                if tick % Self.contentRefreshTicks == 0 {
+                    await self.refreshSelectedPresentation()
+                }
             }
         }
+    }
+
+    /// The websocket announces slide *changes*, but ProPresenter has no event for slide
+    /// *edits* — so enabling or disabling a slide never reaches a presentation we already
+    /// cached. Re-read the visible one and swap it in only when the slides actually differ,
+    /// so an untouched presentation doesn't churn the grid every few seconds.
+    private func refreshSelectedPresentation() async {
+        guard isConnected, let current = selectedPresentation else { return }
+
+        let fetched: Presentation?
+        if current.uuid == livePresentationUUID {
+            fetched = try? await api.fetchActivePresentation(host: host, port: portInt, arrangementUUID: current.arrangementUUID)
+        } else {
+            fetched = try? await api.fetchPresentation(host: host, port: portInt, uuid: current.uuid, arrangementUUID: current.arrangementUUID)
+        }
+
+        // Selection can change while the fetch is in flight; don't clobber it.
+        guard var updated = fetched,
+              updated.uuid == current.uuid,
+              selectedPresentation?.listID == current.listID,
+              updated.slides != current.slides else { return }
+
+        updated.itemUUID = current.itemUUID
+        presentationCache["\(updated.uuid)|\(updated.arrangementUUID ?? "")"] = updated
+        selectedPresentation = updated
     }
 
     // MARK: - Data Loading
