@@ -326,7 +326,10 @@ final class ProPresenterViewModel {
     // MARK: - Selection (read-only, never pushes state)
 
     func selectPresentation(_ presentation: Presentation) async {
-        if presentation.uuid == selectedPresentation?.uuid { return }
+        // Compare by listID, not uuid: a playlist can hold the same presentation twice
+        // (e.g. an announcement loop before and after another item), and those rows are
+        // distinct entries. Keying on uuid made the second copy unselectable.
+        if presentation.listID == selectedPresentation?.listID { return }
         if presentation.uuid != livePresentationUUID {
             userOverrodeSelection = true
         } else {

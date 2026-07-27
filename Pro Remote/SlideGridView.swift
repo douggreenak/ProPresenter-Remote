@@ -29,12 +29,19 @@ struct ThumbnailImage: View {
             }
         }
         .task(id: url) {
-            guard let url else { return }
-            if let cached = Self.platformImage(for: url) {
+            // Cells are reused across presentations (identity is the slide index), so the
+            // previous presentation's thumbnail is still in `image` here. Drop it before
+            // fetching, or a slow or failed load leaves the wrong slide on screen.
+            if let cached = url.flatMap(Self.platformImage(for:)) {
                 image = cached
                 return
             }
-            guard let (data, _) = try? await URLSession.shared.data(from: url) else { return }
+            image = nil
+            guard let url else { return }
+            // ProPresenter answers 404 with an empty body, and URLSession doesn't throw on
+            // 404 — without the status check that decodes to nil and silently keeps nothing.
+            guard let (data, response) = try? await URLSession.shared.data(from: url),
+                  (response as? HTTPURLResponse)?.statusCode == 200 else { return }
             if let decoded = Self.decode(data: data, url: url) {
                 image = decoded
             }
@@ -311,7 +318,9 @@ struct SlideGridView: View {
 
             HStack(spacing: 8) {
                 iconTransportButton("backward.end.fill", label: "First slide", disabled: !viewModel.canTriggerPrevious) {
-                    if let first = viewModel.selectedPresentation?.slides.first(where: { $0.triggerIndex != nil }) {
+                    // Must skip disabled slides, exactly like triggerPrevious does — the grid
+                    // refuses to trigger them, so this button shouldn't either.
+                    if let first = viewModel.selectedPresentation?.slides.first(where: { $0.enabled && $0.triggerIndex != nil }) {
                         Task { await viewModel.triggerSlide(at: first.index) }
                     }
                 }
@@ -336,7 +345,7 @@ struct SlideGridView: View {
                 }
 
                 iconTransportButton("forward.end.fill", label: "Last slide", disabled: !viewModel.canTriggerNext) {
-                    if let last = viewModel.selectedPresentation?.slides.last(where: { $0.triggerIndex != nil }) {
+                    if let last = viewModel.selectedPresentation?.slides.last(where: { $0.enabled && $0.triggerIndex != nil }) {
                         Task { await viewModel.triggerSlide(at: last.index) }
                     }
                 }

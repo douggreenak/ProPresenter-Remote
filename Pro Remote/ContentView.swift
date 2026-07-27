@@ -88,6 +88,13 @@ struct ContentView: View {
             if !viewModel.host.isEmpty && !viewModel.isConnected {
                 await viewModel.connect()
             }
+            // With no server there is nothing to control, so open Settings rather than leave
+            // an empty grid. Only on launch, and only once: a dropped connection mid-service
+            // must never throw a sheet over the operator's slides — the status badge covers
+            // that case, and the websocket reconnects on its own.
+            if !viewModel.isConnected {
+                viewModel.showSettings = true
+            }
         }
     }
 }

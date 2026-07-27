@@ -7,5 +7,11 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Pro Remote finds ProPresenter on your local network and sends it slide commands.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_proapiv1ws._tcp</string>
+	</array>
 </dict>
 </plist>

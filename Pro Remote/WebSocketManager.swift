@@ -17,8 +17,14 @@ final class WebSocketManager {
         self.port = port
         shouldReconnect = true
         reconnectAttempts = 0
-        tearDown()
+        openSocket()
+    }
 
+    /// Opens the socket without touching `reconnectAttempts`. Retries must come through here:
+    /// routing them via `connect(host:port:)` reset the counter every time, which pinned the
+    /// backoff at its first step (3s) forever instead of easing off to 30s.
+    private func openSocket() {
+        tearDown()
         guard let url = URL(string: "ws://\(host):\(port)/v1/status/slide") else { return }
         task = session.webSocketTask(with: url)
         task?.resume()
@@ -42,11 +48,13 @@ final class WebSocketManager {
         Task { [weak self] in
             do {
                 let message = try await task.receive()
-                guard let self else { return }
+                // A torn-down socket's pending receive still lands here; ignore it, or a
+                // stale failure schedules a reconnect that kills the socket we just opened.
+                guard let self, self.task === task else { return }
                 self.handle(message)
                 self.receive()
             } catch {
-                guard let self else { return }
+                guard let self, self.task === task else { return }
                 self.scheduleReconnect()
             }
         }
@@ -64,7 +72,7 @@ final class WebSocketManager {
         reconnectWork = Task { [weak self] in
             try? await Task.sleep(for: .seconds(delay))
             guard !Task.isCancelled, let self else { return }
-            self.connect(host: self.host, port: self.port)
+            self.openSocket()
         }
     }
 }
