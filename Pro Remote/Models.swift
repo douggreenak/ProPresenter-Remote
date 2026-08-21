@@ -149,6 +149,39 @@ struct PlaylistPresentationInfo: Codable {
     }
 }
 
+// MARK: - Active Playlist Item (authoritative arrangement pointer for the live presentation)
+
+/// `GET /v1/playlist/active` names exactly which playlist item is live right now - unlike
+/// `/v1/presentation/active`, which only returns the presentation document itself (plus its
+/// library-default `current_arrangement`) with no idea which playlist row it came from. This
+/// is the one unambiguous source for "what arrangement did the service pick", even when the
+/// same song sits in more than one playlist with a different arrangement chosen in each.
+///
+/// The nesting has been observed to vary (a bare `presentation` key, or one wrapped in
+/// `data`), so both shapes are decoded and normalized through `playlistItem`. Every field is
+/// optional: PCO-linked playlists and older Pro versions can omit `playlist_item` entirely,
+/// and a decode that comes back empty just means "unknown" to the caller, not an error.
+struct ActivePlaylistItemResponse: Codable {
+    let presentation: ActivePlaylistPresentationEnvelope?
+    let data: ActivePlaylistDataEnvelope?
+
+    var playlistItem: PlaylistItem? {
+        presentation?.playlistItem ?? data?.presentation?.playlistItem
+    }
+}
+
+struct ActivePlaylistDataEnvelope: Codable {
+    let presentation: ActivePlaylistPresentationEnvelope?
+}
+
+struct ActivePlaylistPresentationEnvelope: Codable {
+    let playlistItem: PlaylistItem?
+
+    enum CodingKeys: String, CodingKey {
+        case playlistItem = "playlist_item"
+    }
+}
+
 // MARK: - App Models
 
 struct Presentation: Identifiable, Hashable {

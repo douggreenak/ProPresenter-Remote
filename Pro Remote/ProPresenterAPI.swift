@@ -41,6 +41,19 @@ actor ProPresenterAPI {
         return node.allPresentations()
     }
 
+    /// Resolves the arrangement pointer for whatever is *currently live*, straight from the
+    /// active playlist item rather than by searching every playlist for a matching
+    /// presentation UUID. Returns nil (never throws to the caller's detriment beyond that)
+    /// when the server doesn't expose this - older Pro versions and some PCO-linked
+    /// playlists omit `playlist_item` entirely - so callers should fall back to matching
+    /// against an already-loaded playlist in that case.
+    func fetchActivePlaylistItem(host: String, port: Int) async throws -> PlaylistItem? {
+        let url = try buildURL(host, port, path: "/v1/playlist/active")
+        let (data, _) = try await session.data(from: url)
+        let response = try JSONDecoder().decode(ActivePlaylistItemResponse.self, from: data)
+        return response.playlistItem
+    }
+
     // MARK: - Active Presentation
 
     func fetchActivePresentation(host: String, port: Int, arrangementUUID: String? = nil) async throws -> Presentation {
@@ -120,11 +133,27 @@ actor ProPresenterAPI {
             rawStart += group.slides.count
         }
 
-        let effectiveArrUUID = arrangementUUID ?? p.currentArrangement
-        let effectiveArrangement = effectiveArrUUID.flatMap { arrUUID -> ArrangementPayload? in
-            guard !arrUUID.isEmpty else { return nil }
-            return p.arrangements?.first { $0.id.uuid == arrUUID }
-        }
+        // `arrangementUUID`, when supplied, is the pointer pinned on a specific playlist
+        // item (`presentation_info.arrangement_uuid`) - the per-service selection. We
+        // deliberately do NOT fall back to `p.currentArrangement` when it's absent:
+        // `current_arrangement` is the presentation's default arrangement in the library,
+        // not a per-playlist-item override, and falling back to it here was exactly the bug
+        // where a song played back with its library arrangement instead of the one chosen
+        // in the service. With no explicit pointer, treat the presentation as Master
+        // (natural group order) instead of guessing.
+        let effectiveArrangement: ArrangementPayload? = {
+            guard let arrangementUUID, !arrangementUUID.isEmpty else { return nil }
+            guard let match = p.arrangements?.first(where: { $0.id.uuid == arrangementUUID }) else {
+                print("ProPresenterAPI: arrangement_uuid \(arrangementUUID) not found on presentation \(p.id.uuid) (\(p.id.name)); falling back to Master")
+                return nil
+            }
+            // Some Pro builds (observed on 21.3.1/Windows) report Master as a real
+            // arrangement object with an empty `groups` array - treat that the same as "no
+            // arrangement" so it falls through to natural document order below instead of
+            // rendering zero slides.
+            guard !match.groups.isEmpty else { return nil }
+            return match
+        }()
         let displayArrangement = effectiveArrangement
         let triggerArrangement = effectiveArrangement
 

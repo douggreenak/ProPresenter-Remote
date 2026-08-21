@@ -234,8 +234,26 @@ final class ProPresenterViewModel {
     }
 
     func fetchActivePresentation() async {
-        let knownArrUUID = playlistItems.first(where: { $0.uuid == livePresentationUUID })?.arrangementUUID
+        // Hop 1 (authoritative): ask ProPresenter directly which playlist item is live and
+        // what arrangement it pins, instead of guessing by matching the live UUID against
+        // whatever playlist happens to be loaded. This stays correct even when the same song
+        // sits in more than one playlist with a different arrangement chosen in each - the
+        // scenario that used to make the app "pull a mix of incorrect arrangements".
+        let authoritative = (try? await api.fetchActivePlaylistItem(host: host, port: portInt))?.asPresentation()
+        var arrangementIsAuthoritative = authoritative != nil
+
+        let knownArrUUID = authoritative?.arrangementUUID
+            ?? playlistItems.first(where: { $0.uuid == livePresentationUUID })?.arrangementUUID
+
         guard var active = try? await api.fetchActivePresentation(host: host, port: portInt, arrangementUUID: knownArrUUID) else { return }
+
+        // The authoritative lookup and this fetch are two separate requests; if the live
+        // slide moved in between and they now name different presentations, the pointer we
+        // grabbed no longer applies - don't let the corrections below treat it as trustworthy.
+        if let authoritative, authoritative.uuid != active.uuid {
+            arrangementIsAuthoritative = false
+        }
+
         let previousLiveUUID = livePresentationUUID
         livePresentationUUID = active.uuid
 
@@ -245,7 +263,8 @@ final class ProPresenterViewModel {
         if !userOverrodeSelection || selectedPresentation == nil {
             if !playlistItems.contains(where: { $0.uuid == active.uuid }) || selectedPlaylist == nil {
                 await findAndSelectPlaylistContaining(active.uuid)
-                if let arrUUID = playlistItems.first(where: { $0.uuid == active.uuid })?.arrangementUUID,
+                if !arrangementIsAuthoritative,
+                   let arrUUID = playlistItems.first(where: { $0.uuid == active.uuid })?.arrangementUUID,
                    active.arrangementUUID != arrUUID,
                    let corrected = try? await api.fetchActivePresentation(host: host, port: portInt, arrangementUUID: arrUUID) {
                     active = corrected
@@ -260,7 +279,8 @@ final class ProPresenterViewModel {
         if active.uuid != previousLiveUUID && userOverrodeSelection {
             if let matchingItem = playlistItems.first(where: { $0.uuid == active.uuid }) {
                 userOverrodeSelection = false
-                if matchingItem.arrangementUUID != active.arrangementUUID,
+                if !arrangementIsAuthoritative,
+                   matchingItem.arrangementUUID != active.arrangementUUID,
                    let corrected = try? await api.fetchActivePresentation(host: host, port: portInt, arrangementUUID: matchingItem.arrangementUUID) {
                     active = corrected
                     let correctedKey = "\(active.uuid)|\(active.arrangementUUID ?? "")"
