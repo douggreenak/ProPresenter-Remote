@@ -264,22 +264,32 @@ final class ProPresenterViewModel {
         // Sanity-check the resolved arrangement against what ProPresenter's engine is
         // actually running. `/trigger` and `/thumbnail` are indexed against whichever
         // arrangement is *actually active in the document* (its current_arrangement), not
-        // the service's pin - so when the two disagree, the pin's slide count won't match
-        // the engine's real cue count. Slides beyond the real count get non-functional
-        // triggers and 404 thumbnails (greyed-out, unclickable cells), while earlier ones
-        // silently show whichever real cue happens to share that index - wrong lyrics under
-        // a label that looks right. When that mismatch is detected, trust the engine over
-        // the pin and fall back to Master, since that's what's actually live in that case.
+        // the service's pin - so when the two disagree, slides beyond what the engine really
+        // has get non-functional triggers and 404 thumbnails (greyed-out, unclickable cells),
+        // while earlier ones can silently show whichever real cue happens to share that
+        // index - wrong lyrics under a label that looks right.
+        //
+        // A slide-count comparison against `total_cues` catches the common case, but it's not
+        // sufficient on its own: ProPresenter's cue-counting state and its thumbnail-rendering
+        // state can disagree even when the counts match (observed live: total_cues reported a
+        // count matching the pin exactly, while thumbnails past an earlier index still
+        // 404'd). So after a count match, directly verify every slide's thumbnail actually
+        // resolves before trusting the pin. When either check fails, trust the engine over the
+        // pin and fall back to Master, since that's what's actually usable in that case.
         var mismatchDetected = false
         if let liveStatus = try? await api.fetchSlideIndex(host: host, port: portInt),
-           liveStatus.presentationUUID == active.uuid,
-           let liveTotalCues = liveStatus.totalCues,
-           liveTotalCues != active.slides.count,
-           let masterFallback = try? await api.fetchActivePresentation(host: host, port: portInt, arrangementUUID: nil) {
-            print("ProPresenterAPI: resolved arrangement for \(active.name) has \(active.slides.count) slides but the live engine reports \(liveTotalCues) cues - the pinned arrangement isn't actually active in ProPresenter; falling back to Master so triggering and thumbnails stay in sync.")
-            active = masterFallback
-            arrangementIsAuthoritative = false
-            mismatchDetected = true
+           liveStatus.presentationUUID == active.uuid {
+            let countMismatch = liveStatus.totalCues.map { $0 != active.slides.count } ?? false
+            let thumbnailsOK = countMismatch ? false : await api.verifyThumbnailsAvailable(host: host, port: portInt, uuid: active.uuid, count: active.slides.count)
+
+            if !thumbnailsOK,
+               let masterFallback = try? await api.fetchActivePresentation(host: host, port: portInt, arrangementUUID: nil) {
+                let reason = countMismatch ? "has \(active.slides.count) slides but the live engine reports \(liveStatus.totalCues ?? -1) cues" : "has missing thumbnails for some of its \(active.slides.count) slides despite the live cue count matching"
+                print("ProPresenterAPI: resolved arrangement for \(active.name) \(reason) - the pinned arrangement isn't actually usable in ProPresenter right now; falling back to Master so triggering and thumbnails stay in sync.")
+                active = masterFallback
+                arrangementIsAuthoritative = false
+                mismatchDetected = true
+            }
         }
         liveArrangementMismatch = mismatchDetected
 

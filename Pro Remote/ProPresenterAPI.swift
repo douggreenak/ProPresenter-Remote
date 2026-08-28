@@ -113,6 +113,34 @@ actor ProPresenterAPI {
         URL(string: "http://\(host):\(port)/v1/presentation/\(uuid)/thumbnail/\(index)")
     }
 
+    /// Directly verifies ProPresenter actually has a real thumbnail for every slide index a
+    /// resolved arrangement expects to use (0..<count), rather than inferring it from cue
+    /// counts. That inference isn't reliable on its own: ProPresenter's live cue-counting
+    /// state and its thumbnail-rendering state can disagree even when the resolved
+    /// arrangement's slide count matches `total_cues` exactly - the trigger engine can be
+    /// counting a pinned arrangement's cues while thumbnail rendering is still only caught up
+    /// to a shorter one (observed live: total_cues reported 19 matching the pin, but
+    /// thumbnails past index 13 still 404'd). Checked concurrently since this only runs once
+    /// per live-song change, not on every poll tick, and it's a local network call.
+    func verifyThumbnailsAvailable(host: String, port: Int, uuid: String, count: Int) async -> Bool {
+        guard count > 0 else { return true }
+        let session = self.session
+        return await withTaskGroup(of: Bool.self) { group in
+            for index in 0..<count {
+                group.addTask {
+                    guard let url = URL(string: "http://\(host):\(port)/v1/presentation/\(uuid)/thumbnail/\(index)") else { return false }
+                    guard let (_, response) = try? await session.data(from: url) else { return false }
+                    return (response as? HTTPURLResponse)?.statusCode == 200
+                }
+            }
+            var allAvailable = true
+            for await ok in group where !ok {
+                allAvailable = false
+            }
+            return allAvailable
+        }
+    }
+
     // MARK: - Connection Test
 
     func testConnection(host: String, port: Int) async throws -> Bool {
