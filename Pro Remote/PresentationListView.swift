@@ -177,6 +177,15 @@ private struct PresentationRow: View {
 
                 Spacer(minLength: 4)
 
+                if isLive && viewModel.liveArrangementMismatch {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.yellow)
+                        .help("Arrangement mismatch - ProPresenter's library arrangement doesn't match Sunday Service's selection for this song.")
+                        .accessibilityLabel("Arrangement mismatch")
+                        .padding(.trailing, isLive ? 4 : 0)
+                }
+
                 if isLive {
                     PhaseAnimator([false, true]) { isGlowing in
                         Text("LIVE")
@@ -205,7 +214,7 @@ private struct PresentationRow: View {
         .onHover { isHovered = $0 }
         .animation(.easeOut(duration: 0.12), value: isHovered)
         .animation(.easeOut(duration: 0.15), value: isSelected)
-        .accessibilityLabel("\(item.name)\(isLive ? ", live" : "")")
+        .accessibilityLabel("\(item.name)\(isLive ? ", live" : "")\(isLive && viewModel.liveArrangementMismatch ? ", arrangement mismatch" : "")")
         .accessibilityHint("Double tap to select")
     }
 

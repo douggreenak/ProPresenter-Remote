@@ -238,6 +238,22 @@ struct SlideGridView: View {
                 .accessibilityLabel("Go to active presentation")
             }
 
+            if viewModel.isViewingLivePresentation && viewModel.liveArrangementMismatch {
+                HStack(spacing: 4) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 8))
+                    Text("Arrangement Mismatch")
+                        .font(.system(size: 9, weight: .heavy))
+                }
+                .foregroundStyle(.black)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(Color.yellow, in: Capsule())
+                .help("ProPresenter's library arrangement for this song doesn't match the one Sunday Service has selected, so the app is showing the raw slide order instead. Re-select the correct arrangement in ProPresenter to fix this.")
+                .accessibilityLabel("Arrangement mismatch")
+                .accessibilityHint("ProPresenter's library arrangement doesn't match the one Sunday Service selected. Showing the raw slide order instead. Re-select the correct arrangement in ProPresenter to fix this.")
+            }
+
             if viewModel.isViewingLivePresentation {
                 PhaseAnimator([false, true]) { isGlowing in
                     Text("LIVE")
@@ -256,6 +272,7 @@ struct SlideGridView: View {
         .padding(.vertical, 6)
         .background(Color(white: 0.09))
         .animation(.easeInOut(duration: 0.3), value: viewModel.isViewingLivePresentation)
+        .animation(.easeInOut(duration: 0.3), value: viewModel.liveArrangementMismatch)
     }
 
     private func transportButton(_ label: String, icon: String? = nil, iconLeading: Bool = true, prominent: Bool = false, disabled: Bool, action: @escaping () -> Void) -> some View {
