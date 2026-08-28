@@ -68,10 +68,12 @@ struct SlideIndexPayload: Codable {
 struct PresentationIndexPayload: Codable {
     let presentationId: PresentationIdentifier?
     let index: Int
+    let totalCues: Int?
 
     enum CodingKeys: String, CodingKey {
         case presentationId = "presentation_id"
         case index
+        case totalCues = "total_cues"
     }
 }
 

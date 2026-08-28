@@ -78,11 +78,11 @@ actor ProPresenterAPI {
 
     // MARK: - Slide Status
 
-    func fetchSlideIndex(host: String, port: Int) async throws -> (slideIndex: Int, presentationUUID: String?) {
+    func fetchSlideIndex(host: String, port: Int) async throws -> (slideIndex: Int, presentationUUID: String?, totalCues: Int?) {
         let url = try buildURL(host, port, path: "/v1/presentation/slide_index")
         let (data, _) = try await session.data(from: url)
         let r = try JSONDecoder().decode(SlideIndexPayload.self, from: data)
-        return (r.presentationIndex?.index ?? 0, r.presentationIndex?.presentationId?.uuid)
+        return (r.presentationIndex?.index ?? 0, r.presentationIndex?.presentationId?.uuid, r.presentationIndex?.totalCues)
     }
 
     // MARK: - Triggers
