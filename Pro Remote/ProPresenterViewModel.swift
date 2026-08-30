@@ -211,10 +211,30 @@ final class ProPresenterViewModel {
 
     // MARK: - Data Loading
 
+    /// Fully reloads everything from ProPresenter - the playlist list, the currently
+    /// selected playlist's items (arrangement pins included), the live presentation, and
+    /// whatever non-live presentation is currently being viewed. Clears the presentation
+    /// cache first so nothing already open is skipped as "up to date".
     func refreshAll() async {
         presentationCache.removeAll()
         await fetchPlaylists()
+
+        if let selected = selectedPlaylist,
+           let refreshedItems = try? await api.fetchPlaylistItems(host: host, port: portInt, uuid: selected.uuid) {
+            playlistItems = refreshedItems
+        }
+
         await fetchActivePresentation()
+
+        // fetchActivePresentation() already refreshed the live one; if the user is looking
+        // at a *different*, non-live presentation, that one needs its own explicit reload.
+        if let current = selectedPresentation, current.uuid != livePresentationUUID,
+           var refreshed = try? await api.fetchPresentation(host: host, port: portInt, uuid: current.uuid, arrangementUUID: current.arrangementUUID) {
+            refreshed.itemUUID = current.itemUUID
+            presentationCache["\(refreshed.uuid)|\(refreshed.arrangementUUID ?? "")"] = refreshed
+            selectedPresentation = refreshed
+        }
+
         await fetchSlideStatus()
     }
 
@@ -302,7 +322,11 @@ final class ProPresenterViewModel {
         if !userOverrodeSelection || selectedPresentation == nil {
             if !playlistItems.contains(where: { $0.uuid == active.uuid }) || selectedPlaylist == nil {
                 await findAndSelectPlaylistContaining(active.uuid)
-                if !arrangementIsAuthoritative,
+                // Don't re-apply a pin we just proved doesn't work: mismatchDetected means the
+                // live-engine check above already determined the pin isn't usable and switched
+                // to Master on purpose - this block's job is only to recover a pin when we
+                // genuinely don't have one yet, not to overwrite a verified fallback.
+                if !arrangementIsAuthoritative, !mismatchDetected,
                    let arrUUID = playlistItems.first(where: { $0.uuid == active.uuid })?.arrangementUUID,
                    active.arrangementUUID != arrUUID,
                    let corrected = try? await api.fetchActivePresentation(host: host, port: portInt, arrangementUUID: arrUUID) {
@@ -318,7 +342,7 @@ final class ProPresenterViewModel {
         if active.uuid != previousLiveUUID && userOverrodeSelection {
             if let matchingItem = playlistItems.first(where: { $0.uuid == active.uuid }) {
                 userOverrodeSelection = false
-                if !arrangementIsAuthoritative,
+                if !arrangementIsAuthoritative, !mismatchDetected,
                    matchingItem.arrangementUUID != active.arrangementUUID,
                    let corrected = try? await api.fetchActivePresentation(host: host, port: portInt, arrangementUUID: matchingItem.arrangementUUID) {
                     active = corrected

@@ -5,21 +5,22 @@ struct PresentationListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if !viewModel.playlists.isEmpty {
-                HStack {
-                    Text("Playlists")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(Color(white: 0.35))
-                        .textCase(.uppercase)
-                    Spacer()
+            HStack(spacing: 6) {
+                Text("Playlists")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundColor(Color(white: 0.35))
+                    .textCase(.uppercase)
+                Spacer()
+                if !viewModel.playlists.isEmpty {
                     Text("\(viewModel.playlists.count)")
                         .font(.system(size: 9, weight: .medium, design: .monospaced))
                         .foregroundColor(Color(white: 0.35))
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(Color(white: 0.07))
+                RefreshButton()
             }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(Color(white: 0.07))
 
             ScrollView {
                 VStack(spacing: 1) {
@@ -106,6 +107,35 @@ struct PresentationListView: View {
             await viewModel.refreshAll()
         }
         .navigationTitle("Playlists")
+    }
+}
+
+// MARK: - Refresh Button
+
+private struct RefreshButton: View {
+    @Environment(ProPresenterViewModel.self) private var viewModel
+    @State private var isRefreshing = false
+
+    var body: some View {
+        Button {
+            guard !isRefreshing else { return }
+            isRefreshing = true
+            Task {
+                await viewModel.refreshAll()
+                isRefreshing = false
+            }
+        } label: {
+            Image(systemName: "arrow.clockwise")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(viewModel.isConnected ? Color(white: 0.5) : Color(white: 0.25))
+                .rotationEffect(.degrees(isRefreshing ? 360 : 0))
+                .animation(isRefreshing ? .linear(duration: 0.8).repeatForever(autoreverses: false) : .default, value: isRefreshing)
+        }
+        .buttonStyle(.plain)
+        .disabled(!viewModel.isConnected || isRefreshing)
+        .help("Refresh - reload playlists, presentations, and live status from ProPresenter")
+        .accessibilityLabel("Refresh")
+        .accessibilityHint("Reloads all data from ProPresenter")
     }
 }
 
