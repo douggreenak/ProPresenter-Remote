@@ -98,12 +98,20 @@ struct PlaylistNode: Codable {
         return nodeType.map { containerTypes.contains($0.lowercased()) } ?? (items != nil || children != nil)
     }
 
-    func allPresentations() -> [Presentation] {
+    /// `playlistUUID` is the containing playlist's own uuid (the one `/v1/playlist/{uuid}` was
+    /// fetched with) - it's not present anywhere in a `PlaylistItem`'s own JSON, so it has to be
+    /// threaded down from the top-level fetch instead. Every resulting Presentation is stamped
+    /// with it (alongside its own index within that playlist) so callers can address its
+    /// thumbnails via the arrangement-scoped `/v1/playlist/{playlistUUID}/{itemIndex}/thumbnail/{cueIndex}`
+    /// endpoint later, instead of the presentation-scoped one that can't address repeated slides.
+    func allPresentations(playlistUUID: String) -> [Presentation] {
         var results: [Presentation] = []
 
         if let items {
             for item in items {
-                if let pres = item.asPresentation() {
+                if var pres = item.asPresentation() {
+                    pres.playlistUUID = playlistUUID
+                    pres.playlistItemIndex = pres.index
                     results.append(pres)
                 }
             }
@@ -114,7 +122,7 @@ struct PlaylistNode: Codable {
         }
 
         for child in children ?? [] {
-            results.append(contentsOf: child.allPresentations())
+            results.append(contentsOf: child.allPresentations(playlistUUID: playlistUUID))
         }
 
         return results
@@ -170,6 +178,12 @@ struct ActivePlaylistItemResponse: Codable {
     var playlistItem: PlaylistItem? {
         presentation?.playlistItem ?? data?.presentation?.playlistItem
     }
+
+    /// The containing playlist's own uuid, alongside the item pointer above - needed to build
+    /// the arrangement-scoped thumbnail URL for whatever's live (see `PlaylistNode.allPresentations`).
+    var playlistUUID: String? {
+        presentation?.playlist?.uuid ?? data?.presentation?.playlist?.uuid
+    }
 }
 
 struct ActivePlaylistDataEnvelope: Codable {
@@ -177,9 +191,11 @@ struct ActivePlaylistDataEnvelope: Codable {
 }
 
 struct ActivePlaylistPresentationEnvelope: Codable {
+    let playlist: PresentationIdentifier?
     let playlistItem: PlaylistItem?
 
     enum CodingKeys: String, CodingKey {
+        case playlist
         case playlistItem = "playlist_item"
     }
 }
@@ -194,17 +210,28 @@ struct Presentation: Identifiable, Hashable {
     var slides: [Slide]
     var arrangementUUID: String?
     var itemUUID: String?
+    /// The playlist this presentation was pinned in, and its position within that playlist -
+    /// together they address `/v1/playlist/{playlistUUID}/{playlistItemIndex}/thumbnail/{cueIndex}`,
+    /// the one ProPresenter thumbnail endpoint that's scoped to the active arrangement rather
+    /// than the raw document, so it can serve a real image for a repeated slide instead of
+    /// 404ing past the document's own slide count. Nil when this presentation wasn't reached
+    /// through a known playlist item (e.g. no playlist match found yet) - callers fall back to
+    /// the presentation-scoped thumbnail endpoint in that case.
+    var playlistUUID: String?
+    var playlistItemIndex: Int?
     var triggerToDisplayMap: [Int: [Int]] = [:]
 
     var listID: String { itemUUID ?? uuid }
 
-    init(uuid: String, name: String, index: Int? = nil, slides: [Slide] = [], arrangementUUID: String? = nil, itemUUID: String? = nil, triggerToDisplayMap: [Int: [Int]] = [:]) {
+    init(uuid: String, name: String, index: Int? = nil, slides: [Slide] = [], arrangementUUID: String? = nil, itemUUID: String? = nil, playlistUUID: String? = nil, playlistItemIndex: Int? = nil, triggerToDisplayMap: [Int: [Int]] = [:]) {
         self.uuid = uuid
         self.name = name
         self.index = index
         self.slides = slides
         self.arrangementUUID = arrangementUUID
         self.itemUUID = itemUUID
+        self.playlistUUID = playlistUUID
+        self.playlistItemIndex = playlistItemIndex
         self.triggerToDisplayMap = triggerToDisplayMap
     }
 
@@ -232,6 +259,13 @@ struct Slide: Identifiable, Hashable {
     let triggerIndex: Int?
 
     var index: Int { id }
+
+    /// True when there's *some* index this slide can be triggered by - either as the routine
+    /// "already live" cue (`thumbnailIndex`, used with `/v1/presentation/active/{index}/trigger`)
+    /// or, for activating a different presentation from cold, `triggerIndex`. Whether either one
+    /// actually applies depends on which of those two calls the trigger goes through as, decided
+    /// in `ProPresenterViewModel.triggerSlide` - this just gates the UI's enabled/disabled state.
+    var isTriggerable: Bool { thumbnailIndex != nil || triggerIndex != nil }
 
     var displayText: String {
         if !text.isEmpty { return text }

@@ -23,7 +23,7 @@ struct NotesView: View {
                     .padding(.horizontal, 8)
                     .padding(.vertical, 5)
 
-                    if let url = viewModel.thumbnailURL(for: slide.thumbnailIndex) {
+                    if let url = viewModel.thumbnailURL(for: slide) {
                         ThumbnailImage(url: url)
                             .clipShape(RoundedRectangle(cornerRadius: 4))
                             .overlay(
@@ -48,7 +48,7 @@ struct NotesView: View {
                         .padding(.bottom, 4)
 
                         if let nextSlide = viewModel.selectedPresentation?.slides[safe: nextIndex],
-                           let url = viewModel.thumbnailURL(for: nextSlide.thumbnailIndex) {
+                           let url = viewModel.thumbnailURL(for: nextSlide) {
                             ThumbnailImage(url: url)
                                 .clipShape(RoundedRectangle(cornerRadius: 4))
                                 .overlay(

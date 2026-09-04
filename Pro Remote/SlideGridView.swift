@@ -98,7 +98,7 @@ struct SlideGridView: View {
                             ForEach(presentation.slides) { slide in
                                 SlideCell(
                                     slide: slide,
-                                    thumbnailURL: viewModel.thumbnailURL(for: slide.thumbnailIndex),
+                                    thumbnailURL: viewModel.thumbnailURL(for: slide),
                                     isLive: viewModel.isViewingLivePresentation && slide.index == viewModel.liveSlideIndex
                                 ) {
                                     Task { await viewModel.triggerSlide(at: slide.index) }

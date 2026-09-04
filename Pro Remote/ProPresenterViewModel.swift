@@ -76,13 +76,13 @@ final class ProPresenterViewModel {
     var canTriggerNext: Bool {
         guard let pres = selectedPresentation else { return false }
         let currentIndex = isViewingLivePresentation ? liveSlideIndex : -1
-        return pres.slides.contains { $0.index > currentIndex && $0.enabled && $0.triggerIndex != nil }
+        return pres.slides.contains { $0.index > currentIndex && $0.enabled && $0.isTriggerable }
     }
 
     var canTriggerPrevious: Bool {
         guard let pres = selectedPresentation else { return false }
         let currentIndex = isViewingLivePresentation ? liveSlideIndex : pres.slides.count
-        return pres.slides.contains { $0.index < currentIndex && $0.enabled && $0.triggerIndex != nil }
+        return pres.slides.contains { $0.index < currentIndex && $0.enabled && $0.isTriggerable }
     }
 
     var canSelectNextPresentation: Bool {
@@ -205,6 +205,8 @@ final class ProPresenterViewModel {
               updated.slides != current.slides else { return }
 
         updated.itemUUID = current.itemUUID
+        updated.playlistUUID = current.playlistUUID
+        updated.playlistItemIndex = current.playlistItemIndex
         presentationCache["\(updated.uuid)|\(updated.arrangementUUID ?? "")"] = updated
         selectedPresentation = updated
     }
@@ -231,6 +233,8 @@ final class ProPresenterViewModel {
         if let current = selectedPresentation, current.uuid != livePresentationUUID,
            var refreshed = try? await api.fetchPresentation(host: host, port: portInt, uuid: current.uuid, arrangementUUID: current.arrangementUUID) {
             refreshed.itemUUID = current.itemUUID
+            refreshed.playlistUUID = current.playlistUUID
+            refreshed.playlistItemIndex = current.playlistItemIndex
             presentationCache["\(refreshed.uuid)|\(refreshed.arrangementUUID ?? "")"] = refreshed
             selectedPresentation = refreshed
         }
@@ -266,7 +270,8 @@ final class ProPresenterViewModel {
         // whatever playlist happens to be loaded. This stays correct even when the same song
         // sits in more than one playlist with a different arrangement chosen in each - the
         // scenario that used to make the app "pull a mix of incorrect arrangements".
-        let authoritative = (try? await api.fetchActivePlaylistItem(host: host, port: portInt))?.asPresentation()
+        let authoritativeResult = try? await api.fetchActivePlaylistItem(host: host, port: portInt)
+        let authoritative = authoritativeResult?.item.asPresentation()
         var arrangementIsAuthoritative = authoritative != nil
 
         let knownArrUUID = authoritative?.arrangementUUID
@@ -281,26 +286,40 @@ final class ProPresenterViewModel {
             arrangementIsAuthoritative = false
         }
 
-        // Sanity-check the resolved arrangement against what ProPresenter's engine is
-        // actually running. `/trigger` and `/thumbnail` are indexed against whichever
-        // arrangement is *actually active in the document* (its current_arrangement), not
-        // the service's pin - so when the two disagree, slides beyond what the engine really
-        // has get non-functional triggers and 404 thumbnails (greyed-out, unclickable cells),
-        // while earlier ones can silently show whichever real cue happens to share that
-        // index - wrong lyrics under a label that looks right.
-        //
-        // A slide-count comparison against `total_cues` catches the common case, but it's not
-        // sufficient on its own: ProPresenter's cue-counting state and its thumbnail-rendering
-        // state can disagree even when the counts match (observed live: total_cues reported a
-        // count matching the pin exactly, while thumbnails past an earlier index still
-        // 404'd). So after a count match, directly verify every slide's thumbnail actually
-        // resolves before trusting the pin. When either check fails, trust the engine over the
-        // pin and fall back to Master, since that's what's actually usable in that case.
+        // Attach whatever playlist context is already known, so the mismatch check below (and
+        // the grid's own thumbnail requests) can use the arrangement-scoped playlist thumbnail
+        // endpoint instead of the presentation-scoped one, which can't address a slide that
+        // only exists at a given position because a group repeats in the playlist's pin.
+        if arrangementIsAuthoritative, let authoritative {
+            active.playlistUUID = authoritativeResult?.playlistUUID
+            active.playlistItemIndex = authoritative.index
+        } else if let matchingItem = playlistItems.first(where: { $0.uuid == active.uuid }) {
+            active.playlistUUID = matchingItem.playlistUUID
+            active.playlistItemIndex = matchingItem.playlistItemIndex
+        }
+
+        // Sanity-check the resolved arrangement against what ProPresenter's engine is actually
+        // running, via the arrangement-scoped playlist thumbnail endpoint (the same one the
+        // grid uses) rather than the presentation-scoped one - that one respects the
+        // presentation's LIBRARY arrangement selection, not the playlist's pin, so it used to
+        // report false mismatches for perfectly good pins whenever a group repeated (confirmed
+        // live: `/v1/presentation/{uuid}/thumbnail/{n}` 404's for any cue past the document's
+        // own raw slide count, even while ProPresenter is genuinely, correctly live on that
+        // exact cue). A slide-count comparison against `total_cues` still catches the case
+        // where the pin flat-out doesn't match what the engine is running. When either check
+        // fails, trust the engine over the pin and fall back to Master. Skipped when the
+        // playlist context above is still unknown, since there's nothing more reliable to
+        // check against in that case - the resolved pin is trusted as-is.
         var mismatchDetected = false
         if let liveStatus = try? await api.fetchSlideIndex(host: host, port: portInt),
            liveStatus.presentationUUID == active.uuid {
             let countMismatch = liveStatus.totalCues.map { $0 != active.slides.count } ?? false
-            let thumbnailsOK = countMismatch ? false : await api.verifyThumbnailsAvailable(host: host, port: portInt, uuid: active.uuid, count: active.slides.count)
+            let thumbnailsOK: Bool
+            if let playlistUUID = active.playlistUUID, let itemIndex = active.playlistItemIndex {
+                thumbnailsOK = countMismatch ? false : await api.verifyThumbnailsAvailable(host: host, port: portInt, playlistUUID: playlistUUID, itemIndex: itemIndex, count: active.slides.count)
+            } else {
+                thumbnailsOK = !countMismatch
+            }
 
             if !thumbnailsOK,
                let masterFallback = try? await api.fetchActivePresentation(host: host, port: portInt, arrangementUUID: nil) {
@@ -335,7 +354,11 @@ final class ProPresenterViewModel {
                     presentationCache[correctedKey] = active
                 }
             }
-            active.itemUUID = playlistItems.first(where: { $0.uuid == active.uuid })?.itemUUID
+            if let matchingItem = playlistItems.first(where: { $0.uuid == active.uuid }) {
+                active.itemUUID = matchingItem.itemUUID
+                active.playlistUUID = matchingItem.playlistUUID
+                active.playlistItemIndex = matchingItem.playlistItemIndex
+            }
             selectedPresentation = active
         }
 
@@ -350,6 +373,8 @@ final class ProPresenterViewModel {
                     presentationCache[correctedKey] = active
                 }
                 active.itemUUID = matchingItem.itemUUID
+                active.playlistUUID = matchingItem.playlistUUID
+                active.playlistItemIndex = matchingItem.playlistItemIndex
                 selectedPresentation = active
             }
         }
@@ -429,6 +454,8 @@ final class ProPresenterViewModel {
 
         if var cached = presentationCache[cacheKey] {
             cached.itemUUID = presentation.itemUUID
+            cached.playlistUUID = presentation.playlistUUID
+            cached.playlistItemIndex = presentation.playlistItemIndex
             selectedPresentation = cached
             return
         }
@@ -437,6 +464,8 @@ final class ProPresenterViewModel {
             do {
                 var full = try await api.fetchActivePresentation(host: host, port: portInt, arrangementUUID: presentation.arrangementUUID)
                 full.itemUUID = presentation.itemUUID
+                full.playlistUUID = presentation.playlistUUID
+                full.playlistItemIndex = presentation.playlistItemIndex
                 presentationCache[cacheKey] = full
                 selectedPresentation = full
                 return
@@ -446,6 +475,8 @@ final class ProPresenterViewModel {
         do {
             var full = try await api.fetchPresentation(host: host, port: portInt, uuid: presentation.uuid, arrangementUUID: presentation.arrangementUUID)
             full.itemUUID = presentation.itemUUID
+            full.playlistUUID = presentation.playlistUUID
+            full.playlistItemIndex = presentation.playlistItemIndex
             presentationCache[cacheKey] = full
             selectedPresentation = full
         } catch {
@@ -457,15 +488,35 @@ final class ProPresenterViewModel {
 
     func triggerSlide(at index: Int) async {
         guard let pres = selectedPresentation,
-              let slide = pres.slides[safe: index],
-              let triggerIdx = slide.triggerIndex else { return }
+              let slide = pres.slides[safe: index] else { return }
+
+        // Two different calls depending on whether this presentation is already the one live:
+        // - Already live: use the arrangement-scoped active-cue endpoint. It correctly respects
+        //   whatever arrangement made this presentation active (the playlist's pin, in the
+        //   normal case) and, unlike the uuid-scoped call below, can address an individual
+        //   repeated slide (confirmed live: jumping straight to an arrangement's 2nd repeat of
+        //   a group worked immediately, no extra steps). `index` here is `thumbnailIndex`, the
+        //   cue-relative position - the same numbering the grid's thumbnails already use.
+        // - Not yet live (e.g. jumping ahead to start a different song from a specific slide):
+        //   "active" doesn't apply yet, so fall back to the uuid-scoped call, addressed by
+        //   `triggerIndex` (the presentation's LIBRARY-arrangement position - see the long
+        //   comment on `apiTriggerIndex` in `ProPresenterAPI.mapPayload`). This can't address a
+        //   slide that only exists at its position because of a repeat in the playlist's pin,
+        //   but that's a rare cost for "start a different song partway through" specifically.
+        let isAlreadyLive = pres.uuid == livePresentationUUID
+        guard let apiIndex = isAlreadyLive ? slide.thumbnailIndex : slide.triggerIndex else { return }
+
         liveSlideIndex = index
         livePresentationUUID = pres.uuid
         lastUserTrigger = .now
         #if os(iOS)
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         #endif
-        try? await api.triggerSlide(host: host, port: portInt, uuid: pres.uuid, index: triggerIdx)
+        if isAlreadyLive {
+            try? await api.triggerActiveCue(host: host, port: portInt, index: apiIndex)
+        } else {
+            try? await api.triggerSlide(host: host, port: portInt, uuid: pres.uuid, index: apiIndex)
+        }
         try? await api.focusPresentation(host: host, port: portInt, uuid: pres.uuid)
     }
 
@@ -507,8 +558,16 @@ final class ProPresenterViewModel {
         await selectPresentation(playlistItems[idx - 1])
     }
 
-    func thumbnailURL(for index: Int?) -> URL? {
-        guard let index, let pres = selectedPresentation else { return nil }
+    func thumbnailURL(for slide: Slide?) -> URL? {
+        guard let slide, let pres = selectedPresentation else { return nil }
+        // Prefer the arrangement-scoped playlist endpoint: it respects the playlist's pinned
+        // arrangement (including repeated slides), unlike the presentation-scoped fallback
+        // below, which only respects the presentation's library arrangement selection.
+        if let playlistUUID = pres.playlistUUID, let itemIndex = pres.playlistItemIndex,
+           let cueIndex = slide.thumbnailIndex {
+            return api.thumbnailURL(host: host, port: portInt, playlistUUID: playlistUUID, itemIndex: itemIndex, cueIndex: cueIndex)
+        }
+        guard let index = slide.triggerIndex ?? slide.thumbnailIndex else { return nil }
         return api.thumbnailURL(host: host, port: portInt, uuid: pres.uuid, index: index)
     }
 
