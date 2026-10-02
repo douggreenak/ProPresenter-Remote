@@ -176,6 +176,7 @@ private struct PlaylistRow: View {
 
 private struct PresentationRow: View {
     @Environment(ProPresenterViewModel.self) private var viewModel
+    @Environment(\.showDetail) private var showDetail
     let item: Presentation
     let index: Int
     @State private var isHovered = false
@@ -185,6 +186,7 @@ private struct PresentationRow: View {
         let isLive = item.uuid == viewModel.livePresentationUUID
 
         Button {
+            showDetail()
             Task { await viewModel.selectPresentation(item) }
         } label: {
             HStack(spacing: 0) {

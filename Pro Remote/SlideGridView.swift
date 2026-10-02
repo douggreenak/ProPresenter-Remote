@@ -163,13 +163,23 @@ struct SlideGridView: View {
         #endif
     }
 
+    /// Drops the zoom slider when the full header can't fit (portrait iPhone) rather than letting
+    /// the whole detail column grow wider than the screen.
     private func headerBar(for presentation: Presentation) -> some View {
+        ViewThatFits(in: .horizontal) {
+            headerContent(for: presentation, showsZoom: true)
+            headerContent(for: presentation, showsZoom: false)
+        }
+    }
+
+    private func headerContent(for presentation: Presentation, showsZoom: Bool) -> some View {
         HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(presentation.name)
                     .font(.system(size: 16, weight: .bold))
                     .foregroundColor(.white)
                     .lineLimit(1)
+                    .truncationMode(.tail)
                     .help(presentation.name)
                 HStack(spacing: 6) {
                     Text("\(presentation.slides.count) slides")
@@ -202,21 +212,23 @@ struct SlideGridView: View {
 
             Spacer()
 
-            HStack(spacing: 6) {
-                Image(systemName: "minus.magnifyingglass")
-                    .font(.system(size: 11))
-                    .foregroundColor(Color(white: 0.4))
-                Slider(value: $slideMinWidth, in: 120...350, step: 10)
-                    .frame(width: 120)
-                Image(systemName: "plus.magnifyingglass")
-                    .font(.system(size: 11))
-                    .foregroundColor(Color(white: 0.4))
-                Text("\(Int(slideMinWidth))")
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
-                    .foregroundColor(Color(white: 0.5))
-                    .frame(width: 28, alignment: .trailing)
-                    .contentTransition(.numericText())
-                    .animation(.snappy(duration: 0.15), value: slideMinWidth)
+            if showsZoom {
+                HStack(spacing: 6) {
+                    Image(systemName: "minus.magnifyingglass")
+                        .font(.system(size: 11))
+                        .foregroundColor(Color(white: 0.4))
+                    Slider(value: $slideMinWidth, in: 120...350, step: 10)
+                        .frame(width: 120)
+                    Image(systemName: "plus.magnifyingglass")
+                        .font(.system(size: 11))
+                        .foregroundColor(Color(white: 0.4))
+                    Text("\(Int(slideMinWidth))")
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundColor(Color(white: 0.5))
+                        .frame(width: 28, alignment: .trailing)
+                        .contentTransition(.numericText())
+                        .animation(.snappy(duration: 0.15), value: slideMinWidth)
+                }
             }
 
             if !viewModel.isViewingLivePresentation && !viewModel.livePresentationUUID.isEmpty {
@@ -275,23 +287,25 @@ struct SlideGridView: View {
         .animation(.easeInOut(duration: 0.3), value: viewModel.liveArrangementMismatch)
     }
 
-    private func transportButton(_ label: String, icon: String? = nil, iconLeading: Bool = true, prominent: Bool = false, disabled: Bool, action: @escaping () -> Void) -> some View {
+    private func transportButton(_ label: String, icon: String? = nil, iconLeading: Bool = true, prominent: Bool = false, compact: Bool = false, disabled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 5) {
-                if let icon, iconLeading {
+                if let icon, iconLeading || compact {
                     Image(systemName: icon)
-                        .font(.system(size: 10, weight: .bold))
+                        .font(.system(size: compact ? 14 : 10, weight: .bold))
                 }
-                Text(label)
-                    .font(.system(size: 13, weight: .semibold))
-                if let icon, !iconLeading {
+                if !(compact && icon != nil) {
+                    Text(label)
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                if let icon, !iconLeading, !compact {
                     Image(systemName: icon)
                         .font(.system(size: 10, weight: .bold))
                 }
             }
             .foregroundColor(disabled ? Color(white: 0.2) : (prominent ? .white : Color(white: 0.92)))
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
+            .padding(.horizontal, compact ? 12 : 14)
+            .padding(.vertical, compact ? 9 : 8)
             .background(
                 RoundedRectangle(cornerRadius: 6)
                     .fill(buttonBackground(disabled: disabled, prominent: prominent))
@@ -300,6 +314,7 @@ struct SlideGridView: View {
         }
         .buttonStyle(.plain)
         .disabled(disabled)
+        .accessibilityLabel(label)
     }
 
     private func iconTransportButton(_ icon: String, label: String, disabled: Bool, action: @escaping () -> Void) -> some View {
@@ -325,9 +340,20 @@ struct SlideGridView: View {
         return Color(white: 0.18)
     }
 
+    /// Labelled buttons where they fit; icon-only chevrons when they don't (portrait iPhone).
     private var transportBar: some View {
+        ViewThatFits(in: .horizontal) {
+            transportRow(compact: false)
+            transportRow(compact: true)
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 48)
+        .background(Color(white: 0.07))
+    }
+
+    private func transportRow(compact: Bool) -> some View {
         HStack(spacing: 8) {
-            transportButton("Prev Item", icon: "chevron.up", disabled: !viewModel.canSelectPreviousPresentation) {
+            transportButton("Prev Item", icon: "chevron.up", compact: compact, disabled: !viewModel.canSelectPreviousPresentation) {
                 Task { await viewModel.selectPreviousPresentation() }
             }
 
@@ -342,7 +368,7 @@ struct SlideGridView: View {
                     }
                 }
 
-                transportButton("Previous", icon: "chevron.left", disabled: !viewModel.canTriggerPrevious) {
+                transportButton("Previous", icon: "chevron.left", compact: compact, disabled: !viewModel.canTriggerPrevious) {
                     Task { await viewModel.triggerPrevious() }
                 }
 
@@ -357,7 +383,7 @@ struct SlideGridView: View {
                         .accessibilityLabel("Slide \(viewModel.liveSlideIndex + 1) of \(total)")
                 }
 
-                transportButton("Next", icon: "chevron.right", iconLeading: false, prominent: true, disabled: !viewModel.canTriggerNext) {
+                transportButton("Next", icon: "chevron.right", iconLeading: false, prominent: true, compact: compact, disabled: !viewModel.canTriggerNext) {
                     Task { await viewModel.triggerNext() }
                 }
 
@@ -370,13 +396,10 @@ struct SlideGridView: View {
 
             Spacer()
 
-            transportButton("Next Item", icon: "chevron.down", iconLeading: false, disabled: !viewModel.canSelectNextPresentation) {
+            transportButton("Next Item", icon: "chevron.down", iconLeading: false, compact: compact, disabled: !viewModel.canSelectNextPresentation) {
                 Task { await viewModel.selectNextPresentation() }
             }
         }
-        .padding(.horizontal, 8)
-        .frame(height: 48)
-        .background(Color(white: 0.07))
     }
 }
 

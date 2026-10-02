@@ -1,17 +1,82 @@
 import SwiftUI
 
+private struct ShowDetailKey: EnvironmentKey {
+    static let defaultValue: () -> Void = {}
+}
+
+extension EnvironmentValues {
+    /// Reveals the detail column when the split view is collapsed to a single column.
+    var showDetail: () -> Void {
+        get { self[ShowDetailKey.self] }
+        set { self[ShowDetailKey.self] = newValue }
+    }
+}
+
 struct ContentView: View {
     @Environment(ProPresenterViewModel.self) private var viewModel
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    /// Only matters at compact width (iPhone): a split view there shows one column at a time,
+    /// and rows that merely mutate the view model never push the detail on their own.
+    @State private var preferredColumn: NavigationSplitViewColumn = .detail
+    @State private var showRemote = false
 
     var body: some View {
         @Bindable var vm = viewModel
 
-        NavigationSplitView(columnVisibility: $columnVisibility) {
+        NavigationSplitView(columnVisibility: $columnVisibility, preferredCompactColumn: $preferredColumn) {
             PresentationListView()
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 280)
+                .environment(\.showDetail) { preferredColumn = .detail }
         } detail: {
+            // These live on the detail column, not the split view: on iPadOS, toolbar items
+            // declared on the NavigationSplitView itself never render, which left Settings,
+            // Refresh and the connection badge unreachable once connected.
             SlideGridView()
+                .toolbar {
+                    ToolbarItem(placement: .automatic) {
+                        ConnectionStatusBadge(
+                            isConnected: viewModel.isConnected,
+                            isHealthy: viewModel.connectionHealthy,
+                            host: viewModel.host
+                        ) {
+                            viewModel.showSettings = true
+                        }
+                    }
+
+                    ToolbarItem(placement: .automatic) {
+                        Button {
+                            Task { await viewModel.refreshAll() }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                        .help("Refresh")
+                        .accessibilityLabel("Refresh")
+                    }
+
+                    ToolbarItem(placement: .automatic) {
+                        Button {
+                            viewModel.showSettings = true
+                        } label: {
+                            Image(systemName: "gear")
+                        }
+                        .help("Settings")
+                        .accessibilityLabel("Settings")
+                    }
+
+                    ToolbarItemGroup(placement: .automatic) {
+                        CompanionButtonsView()
+                    }
+
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            showRemote = true
+                        } label: {
+                            Image(systemName: "rectangle.on.rectangle.angled")
+                        }
+                        .help("Remote View")
+                        .accessibilityLabel("Remote view")
+                    }
+                }
         }
         .focusable()
         .focusEffectDisabled()
@@ -38,39 +103,16 @@ struct ContentView: View {
                 return .ignored
             }
         }
-        .toolbar {
-            ToolbarItem(placement: .automatic) {
-                ConnectionStatusBadge(
-                    isConnected: viewModel.isConnected,
-                    isHealthy: viewModel.connectionHealthy,
-                    host: viewModel.host
-                ) {
-                    viewModel.showSettings = true
-                }
-            }
-
-            ToolbarItem(placement: .automatic) {
-                Button {
-                    Task { await viewModel.refreshAll() }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .help("Refresh")
-            }
-
-            ToolbarItem(placement: .automatic) {
-                Button {
-                    viewModel.showSettings = true
-                } label: {
-                    Image(systemName: "gear")
-                }
-                .help("Settings")
-            }
-
-            ToolbarItemGroup(placement: .automatic) {
-                CompanionButtonsView()
-            }
+        #if os(iOS)
+        .fullScreenCover(isPresented: $showRemote) {
+            RemoteView()
         }
+        #else
+        .sheet(isPresented: $showRemote) {
+            RemoteView()
+                .frame(minWidth: 720, minHeight: 480)
+        }
+        #endif
         .sheet(isPresented: $vm.showSettings) {
             NavigationStack {
                 SettingsView()
@@ -108,6 +150,12 @@ private struct ConnectionStatusBadge: View {
     var onTap: () -> Void = {}
 
     @State private var isHovered = false
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+
+    /// Portrait iPhone has no room for the word next to four other toolbar buttons; without
+    /// this the system pushes the Remote button into the overflow menu.
+    private var showsLabel: Bool { !(sizeClass == .compact && verticalSizeClass == .regular) }
 
     private var color: Color {
         if isConnected && isHealthy { return .green }
@@ -135,9 +183,11 @@ private struct ConnectionStatusBadge: View {
                         .fill(color)
                         .frame(width: 7, height: 7)
                 }
-                Text(label)
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.secondary)
+                if showsLabel {
+                    Text(label)
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.secondary)
+                }
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)

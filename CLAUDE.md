@@ -67,3 +67,13 @@
 - [x] 53. Companion buttons disabled when no URL configured
 - [x] 54. Error section uses icon + callout font for visibility
 - [x] 55. Presentation list section header with item count
+
+### Batch 6 - Remote View & Cross-Device Layout Fixes (DONE)
+- [x] 56. New Remote view (RemoteView.swift): large live slide + Previous / back / Next Up / Next Slide, opened from a toolbar button
+- [x] 57. Toolbar items moved onto the detail column - on iPadOS, items declared on the NavigationSplitView root never render (Settings/Refresh/badge were unreachable)
+- [x] 58. iPhone navigation: rows now reveal the detail column (preferredCompactColumn); previously the slide grid was unreachable
+- [x] 59. iPhone portrait: header drops the zoom slider and transport bar goes icon-only via ViewThatFits (detail column had grown wider than the screen)
+- [x] 60. Connection badge shows just the dot in portrait iPhone so all toolbar buttons fit
+- [x] 61. Remote view: adaptive transport (roomy row / tight row / two rows), preview card sized from available height, clear "not live" state
+- [x] 62. macOS Remote sheet min size reduced (720x480) so it fits the 900x600 minimum window
+- [x] 63. Accessibility labels on Refresh / Settings toolbar buttons
