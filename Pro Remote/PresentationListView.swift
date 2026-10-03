@@ -107,6 +107,11 @@ struct PresentationListView: View {
             await viewModel.refreshAll()
         }
         .navigationTitle("Playlists")
+        #if os(iOS)
+        // The large-title style leaves an empty nav-bar row above the title on iPhone, since this
+        // column has no toolbar items.
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 }
 
