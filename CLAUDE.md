@@ -88,3 +88,12 @@
 - [x] 67b. Toolbar button next to Settings opens the Stream Deck (opens Settings instead if no Companion address is set)
 - [x] 68. Companion's baked-in location strip ("1/0/3") cropped off each key by default and the gap filled with colours sampled from the picture's own top/bottom rows (in sRGB - sampling in device RGB tinted them); "Show button numbers" toggle in Settings restores it
 - [x] 69. Playlist items whose presentation ProPresenter 404s (e.g. "slides for alaska 1/2") now show their slides, rebuilt from playlist thumbnails, with a "Preview" badge; controls stay disabled until the item is live
+
+### Batch 9 - Mac App Distribution & Documentation (DONE)
+- [x] 70. Scripts/build-mac-app.sh: archives a Release macOS build (universal arm64 + x86_64), signs it with the Bethel Church team's development certificate (THW3L89YM6), verifies the signature, zips it with `ditto` to Releases/Pro-Remote-macOS.zip and writes Releases/BUILD-INFO.txt (commit, date, signing). Touches nothing on the Apple Developer account
+- [x] 71. Releases/ holds the built Mac app + Releases/README.md (install, first-launch approval, first connection, rebuild)
+- [x] 72. README rewritten to match the app: Remote view, Stream Deck / Companion Satellite setup, Preview-only items, Bonjour discovery, keyboard shortcuts table, current architecture table, new troubleshooting entries. Removed the stale claim that NotesView is shown (it is not wired into the UI)
+
+Notes for future work:
+- The Mac build is NOT notarized (no Developer ID certificate on the build machine), so a browser-downloaded copy is blocked until approved once (System Settings > Privacy & Security > Open Anyway, or `xattr -dr com.apple.quarantine`). A locally built or git-cloned copy is not quarantined. Notarizing needs a Developer ID Application certificate plus `notarytool` credentials.
+- Rebuild Releases/Pro-Remote-macOS.zip with Scripts/build-mac-app.sh whenever the app changes; BUILD-INFO.txt shows which commit the zip came from.
