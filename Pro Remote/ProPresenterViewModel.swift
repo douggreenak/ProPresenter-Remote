@@ -40,6 +40,24 @@ final class ProPresenterViewModel {
     var companionButtons: [CompanionButton] {
         didSet { saveCompanionButtons() }
     }
+    /// Where Bitfocus Companion is running (often the same machine as ProPresenter). Its web
+    /// interface on this address is what the virtual Stream Deck shows.
+    var companionHost: String {
+        didSet { UserDefaults.standard.set(companionHost, forKey: "co_host") }
+    }
+    /// Companion's Satellite API port (16622 by default) - the channel the virtual deck uses.
+    var companionPort: String {
+        didSet { UserDefaults.standard.set(companionPort, forKey: "co_sat_port") }
+    }
+    /// Companion draws each button's location ("1/0/3") across the top of its picture. Off by
+    /// default so the virtual deck looks like the real one.
+    var companionShowNumbers: Bool {
+        didSet { UserDefaults.standard.set(companionShowNumbers, forKey: "co_numbers") }
+    }
+    var showStreamDeck: Bool = false
+    /// Settings is itself a sheet, and presenting one cover from inside another is unreliable,
+    /// so a request made from Settings waits here until that sheet has finished dismissing.
+    var pendingStreamDeck: Bool = false
 
     // MARK: - Dependencies
 
@@ -52,6 +70,16 @@ final class ProPresenterViewModel {
     // MARK: - Computed
 
     var portInt: Int { Int(port) ?? 1025 }
+
+    var companionConfigured: Bool {
+        !companionHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var companionHostTrimmed: String {
+        companionHost.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var companionPortInt: Int { Int(companionPort) ?? 16622 }
 
     var isViewingLivePresentation: Bool {
         selectedPresentation?.uuid == livePresentationUUID
@@ -76,13 +104,13 @@ final class ProPresenterViewModel {
     var canTriggerNext: Bool {
         guard let pres = selectedPresentation else { return false }
         let currentIndex = isViewingLivePresentation ? liveSlideIndex : -1
-        return pres.slides.contains { $0.index > currentIndex && $0.enabled && $0.isTriggerable }
+        return pres.slides.contains { $0.index > currentIndex && $0.enabled && (pres.previewOnly ? isPlayable($0) : $0.isTriggerable) }
     }
 
     var canTriggerPrevious: Bool {
         guard let pres = selectedPresentation else { return false }
         let currentIndex = isViewingLivePresentation ? liveSlideIndex : pres.slides.count
-        return pres.slides.contains { $0.index < currentIndex && $0.enabled && $0.isTriggerable }
+        return pres.slides.contains { $0.index < currentIndex && $0.enabled && (pres.previewOnly ? isPlayable($0) : $0.isTriggerable) }
     }
 
     var canSelectNextPresentation: Bool {
@@ -103,6 +131,9 @@ final class ProPresenterViewModel {
         host = UserDefaults.standard.string(forKey: "pp_host") ?? ""
         port = UserDefaults.standard.string(forKey: "pp_port") ?? "1025"
         companionButtons = Self.loadCompanionButtons()
+        companionHost = UserDefaults.standard.string(forKey: "co_host") ?? ""
+        companionPort = UserDefaults.standard.string(forKey: "co_sat_port") ?? "16622"
+        companionShowNumbers = UserDefaults.standard.bool(forKey: "co_numbers")
 
         webSocket.onSlideChanged = { [weak self] in
             Task { await self?.fetchSlideStatus() }
@@ -480,8 +511,32 @@ final class ProPresenterViewModel {
             presentationCache[cacheKey] = full
             selectedPresentation = full
         } catch {
-            selectedPresentation = presentation
+            selectedPresentation = await thumbnailOnlyPresentation(for: presentation) ?? presentation
         }
+    }
+
+    /// ProPresenter refuses to serve the document for some playlist items (HTTP 404) even though
+    /// they play fine and their thumbnails are available. Rather than show an empty grid, build the
+    /// slide list from those thumbnails. Not cached, so a later selection retries the real document.
+    private func thumbnailOnlyPresentation(for presentation: Presentation) async -> Presentation? {
+        guard let playlistUUID = presentation.playlistUUID, let itemIndex = presentation.playlistItemIndex else { return nil }
+        let count = await api.countPlaylistThumbnails(host: host, port: portInt, playlistUUID: playlistUUID, itemIndex: itemIndex)
+        guard count > 0 else { return nil }
+        var preview = presentation
+        preview.slides = (0..<count).map {
+            Slide(id: $0, text: "", notes: "", enabled: true, groupName: "", thumbnailIndex: $0, triggerIndex: nil)
+        }
+        preview.previewOnly = true
+        return preview
+    }
+
+    /// Whether a slide can actually be fired from the current screen. Normal presentations need a
+    /// library trigger index; a preview-only one has none, so it only responds once it is live
+    /// (when the cue-relative index is what the active-cue endpoint takes).
+    func isPlayable(_ slide: Slide) -> Bool {
+        guard let pres = selectedPresentation else { return false }
+        if pres.previewOnly { return isViewingLivePresentation && slide.thumbnailIndex != nil }
+        return slide.triggerIndex != nil
     }
 
     // MARK: - Actions (only called by explicit user interaction)
@@ -523,14 +578,14 @@ final class ProPresenterViewModel {
     func triggerNext() async {
         guard let pres = selectedPresentation else { return }
         let currentIndex = isViewingLivePresentation ? liveSlideIndex : -1
-        guard let next = pres.slides.first(where: { $0.index > currentIndex && $0.enabled && $0.triggerIndex != nil }) else { return }
+        guard let next = pres.slides.first(where: { $0.index > currentIndex && $0.enabled && isPlayable($0) }) else { return }
         await triggerSlide(at: next.index)
     }
 
     func triggerPrevious() async {
         guard let pres = selectedPresentation else { return }
         let currentIndex = isViewingLivePresentation ? liveSlideIndex : pres.slides.count
-        guard let prev = pres.slides.last(where: { $0.index < currentIndex && $0.enabled && $0.triggerIndex != nil }) else { return }
+        guard let prev = pres.slides.last(where: { $0.index < currentIndex && $0.enabled && isPlayable($0) }) else { return }
         await triggerSlide(at: prev.index)
     }
 
@@ -569,6 +624,19 @@ final class ProPresenterViewModel {
         }
         guard let index = slide.triggerIndex ?? slide.thumbnailIndex else { return nil }
         return api.thumbnailURL(host: host, port: portInt, uuid: pres.uuid, index: index)
+    }
+
+    func openStreamDeck() {
+        if showSettings {
+            pendingStreamDeck = true
+            showSettings = false
+        } else {
+            showStreamDeck = true
+        }
+    }
+
+    func testCompanion() async -> Bool {
+        await CompanionDeck.probe(host: companionHostTrimmed, port: companionPortInt)
     }
 
     func triggerCompanionButton(_ button: CompanionButton) async {

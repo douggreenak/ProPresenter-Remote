@@ -63,6 +63,21 @@ struct ContentView: View {
                         .accessibilityLabel("Settings")
                     }
 
+                    ToolbarItem(placement: .automatic) {
+                        Button {
+                            // Without a Companion address there is nothing to show; go and set one.
+                            if viewModel.companionConfigured {
+                                viewModel.openStreamDeck()
+                            } else {
+                                viewModel.showSettings = true
+                            }
+                        } label: {
+                            Image(systemName: "square.grid.3x3.fill")
+                        }
+                        .help("Stream Deck")
+                        .accessibilityLabel("Stream Deck")
+                    }
+
                     ToolbarItemGroup(placement: .automatic) {
                         CompanionButtonsView()
                     }
@@ -107,13 +122,26 @@ struct ContentView: View {
         .fullScreenCover(isPresented: $showRemote) {
             RemoteView()
         }
+        .fullScreenCover(isPresented: $vm.showStreamDeck) {
+            StreamDeckView()
+        }
         #else
         .sheet(isPresented: $showRemote) {
             RemoteView()
                 .frame(minWidth: 720, minHeight: 480)
         }
+        .sheet(isPresented: $vm.showStreamDeck) {
+            StreamDeckView()
+                .frame(minWidth: 720, minHeight: 480)
+        }
         #endif
-        .sheet(isPresented: $vm.showSettings) {
+        .sheet(isPresented: $vm.showSettings, onDismiss: {
+            // A Stream Deck requested from Settings opens only once Settings is fully gone.
+            if viewModel.pendingStreamDeck {
+                viewModel.pendingStreamDeck = false
+                viewModel.showStreamDeck = true
+            }
+        }) {
             NavigationStack {
                 SettingsView()
                     .toolbar {

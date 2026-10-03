@@ -6,6 +6,8 @@ struct SettingsView: View {
     @State private var testResult: Bool?
     @State private var discovery = ProPresenterDiscovery()
     @State private var showDisconnectConfirmation = false
+    @State private var isTestingCompanion = false
+    @State private var companionResult: Bool?
 
     /// The friendly Bonjour name of whatever we're connected to, falling back to the address.
     private var connectedLabel: String {
@@ -98,6 +100,7 @@ struct SettingsView: View {
                 }
             }
 
+            companionSection
         }
         .formStyle(.grouped)
         .navigationTitle("Settings")
@@ -119,6 +122,70 @@ struct SettingsView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Pro Remote will stop following ProPresenter and clear the slide list until you connect again.")
+        }
+    }
+
+    // MARK: - Companion
+
+    private var companionSection: some View {
+        @Bindable var vm = viewModel
+
+        return Section {
+            TextField("Host / IP Address", text: $vm.companionHost)
+                .autocorrectionDisabled()
+                #if os(iOS)
+                .keyboardType(.URL)
+                .textInputAutocapitalization(.never)
+                #endif
+                .onChange(of: viewModel.companionHost) { _, _ in companionResult = nil }
+
+            TextField("Satellite Port", text: $vm.companionPort)
+                #if os(iOS)
+                .keyboardType(.numberPad)
+                #endif
+                .onChange(of: viewModel.companionPort) { _, newValue in
+                    let filtered = newValue.filter(\.isNumber)
+                    if filtered != newValue { viewModel.companionPort = filtered }
+                    companionResult = nil
+                }
+
+            Toggle("Show button numbers", isOn: $vm.companionShowNumbers)
+
+            if viewModel.companionHost.isEmpty && !viewModel.host.isEmpty {
+                Button("Use ProPresenter's address (\(viewModel.host))") {
+                    viewModel.companionHost = viewModel.host
+                }
+            }
+
+            HStack {
+                Button("Test Companion") {
+                    Task {
+                        isTestingCompanion = true
+                        companionResult = nil
+                        companionResult = await viewModel.testCompanion()
+                        isTestingCompanion = false
+                    }
+                }
+                .disabled(!viewModel.companionConfigured)
+                Spacer()
+                if isTestingCompanion {
+                    ProgressView()
+                } else if let result = companionResult {
+                    Image(systemName: result ? "checkmark.circle.fill" : "xmark.circle.fill")
+                        .foregroundStyle(result ? .green : .red)
+                }
+            }
+
+            Button {
+                viewModel.openStreamDeck()
+            } label: {
+                Label("Open Stream Deck", systemImage: "square.grid.3x3.fill")
+            }
+            .disabled(!viewModel.companionConfigured)
+        } header: {
+            Text("Bitfocus Companion")
+        } footer: {
+            Text("Shows your Companion buttons as a native virtual Stream Deck. It connects to Companion's Satellite API (port 16622 by default), which must be enabled in Companion's settings.")
         }
     }
 

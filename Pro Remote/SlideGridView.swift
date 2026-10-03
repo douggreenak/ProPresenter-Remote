@@ -250,6 +250,19 @@ struct SlideGridView: View {
                 .accessibilityLabel("Go to active presentation")
             }
 
+            if presentation.previewOnly && !viewModel.isViewingLivePresentation {
+                Label("Preview", systemImage: "eye")
+                    .labelStyle(.titleAndIcon)
+                    .font(.system(size: 9, weight: .heavy))
+                    .foregroundStyle(Color(white: 0.85))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(Color(white: 0.25), in: Capsule())
+                    .help("ProPresenter won't share this item's slide details, so only thumbnails are shown. Start it in ProPresenter and the controls here will take over.")
+                    .accessibilityLabel("Preview only")
+                    .accessibilityHint("ProPresenter won't share this item's slide details. Start it in ProPresenter to control it from here.")
+            }
+
             if viewModel.isViewingLivePresentation && viewModel.liveArrangementMismatch {
                 HStack(spacing: 4) {
                     Image(systemName: "exclamationmark.triangle.fill")
@@ -363,7 +376,7 @@ struct SlideGridView: View {
                 iconTransportButton("backward.end.fill", label: "First slide", disabled: !viewModel.canTriggerPrevious) {
                     // Must skip disabled slides, exactly like triggerPrevious does — the grid
                     // refuses to trigger them, so this button shouldn't either.
-                    if let first = viewModel.selectedPresentation?.slides.first(where: { $0.enabled && $0.triggerIndex != nil }) {
+                    if let first = viewModel.selectedPresentation?.slides.first(where: { $0.enabled && viewModel.isPlayable($0) }) {
                         Task { await viewModel.triggerSlide(at: first.index) }
                     }
                 }
@@ -388,7 +401,7 @@ struct SlideGridView: View {
                 }
 
                 iconTransportButton("forward.end.fill", label: "Last slide", disabled: !viewModel.canTriggerNext) {
-                    if let last = viewModel.selectedPresentation?.slides.last(where: { $0.enabled && $0.triggerIndex != nil }) {
+                    if let last = viewModel.selectedPresentation?.slides.last(where: { $0.enabled && viewModel.isPlayable($0) }) {
                         Task { await viewModel.triggerSlide(at: last.index) }
                     }
                 }

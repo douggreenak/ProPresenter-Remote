@@ -77,3 +77,14 @@
 - [x] 61. Remote view: adaptive transport (roomy row / tight row / two rows), preview card sized from available height, clear "not live" state
 - [x] 62. macOS Remote sheet min size reduced (720x480) so it fits the 900x600 minimum window
 - [x] 63. Accessibility labels on Refresh / Settings toolbar buttons
+
+### Batch 7 - Companion Virtual Stream Deck (DONE)
+- [x] 64. Companion section in Settings: host, Satellite port (16622), Test Companion, Open Stream Deck
+- [x] 65. CompanionDeck.swift: native client for Companion's Satellite API (registers as a surface; Companion pushes key images/text, app sends press/release)
+- [x] 66. StreamDeckView.swift: native 8x4 SwiftUI key grid, press-down/release, haptics, page + connection indicator, auto-reconnect, releases held keys and the surface on close
+
+### Batch 8 - Stream Deck Look & Unservable Presentations (DONE)
+- [x] 67. Virtual Stream Deck: flat matte body, plain square keys with a hairline edge, press dim + haptics, one quiet status line (page / connection). (First pass was glossy and skeuomorphic; replaced as it looked over-designed)
+- [x] 67b. Toolbar button next to Settings opens the Stream Deck (opens Settings instead if no Companion address is set)
+- [x] 68. Companion's baked-in location strip ("1/0/3") cropped off each key by default and the gap filled with colours sampled from the picture's own top/bottom rows (in sRGB - sampling in device RGB tinted them); "Show button numbers" toggle in Settings restores it
+- [x] 69. Playlist items whose presentation ProPresenter 404s (e.g. "slides for alaska 1/2") now show their slides, rebuilt from playlist thumbnails, with a "Preview" badge; controls stay disabled until the item is live

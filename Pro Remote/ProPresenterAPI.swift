@@ -175,6 +175,31 @@ actor ProPresenterAPI {
     /// unrelated inability to address repeated slides (see `thumbnailURL(playlistUUID:...)`).
     /// Checked concurrently since this only runs once per live-song change, not on every poll
     /// tick, and it's a local network call.
+    /// How many cues a playlist item has, found by walking its thumbnails until one is missing.
+    /// This is the only way to size an item whose presentation document ProPresenter won't serve.
+    func countPlaylistThumbnails(host: String, port: Int, playlistUUID: String, itemIndex: Int, limit: Int = 400) async -> Int {
+        let session = self.session
+        let batch = 16
+        var start = 0
+        while start < limit {
+            let results: [Int: Bool] = await withTaskGroup(of: (Int, Bool).self) { group in
+                for cue in start..<min(start + batch, limit) {
+                    group.addTask {
+                        guard let url = URL(string: "http://\(host):\(port)/v1/playlist/\(playlistUUID)/\(itemIndex)/thumbnail/\(cue)"),
+                              let (_, response) = try? await session.data(from: url) else { return (cue, false) }
+                        return (cue, (response as? HTTPURLResponse)?.statusCode == 200)
+                    }
+                }
+                var collected: [Int: Bool] = [:]
+                for await (cue, ok) in group { collected[cue] = ok }
+                return collected
+            }
+            if let firstMissing = results.filter({ !$0.value }).keys.min() { return firstMissing }
+            start += batch
+        }
+        return limit
+    }
+
     func verifyThumbnailsAvailable(host: String, port: Int, playlistUUID: String, itemIndex: Int, count: Int) async -> Bool {
         guard count > 0 else { return true }
         let session = self.session

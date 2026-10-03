@@ -220,6 +220,10 @@ struct Presentation: Identifiable, Hashable {
     var playlistUUID: String?
     var playlistItemIndex: Int?
     var triggerToDisplayMap: [Int: [Int]] = [:]
+    /// True when ProPresenter wouldn't serve this presentation's document (its API 404s for some
+    /// items), so the slides were rebuilt from the playlist's thumbnails alone. They can be seen
+    /// and, once the item is live, stepped through - but a slide can't be started from here.
+    var previewOnly: Bool = false
 
     var listID: String { itemUUID ?? uuid }
 
