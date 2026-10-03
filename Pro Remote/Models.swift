@@ -200,6 +200,18 @@ struct ActivePlaylistPresentationEnvelope: Codable {
     }
 }
 
+// MARK: - Macro API Response Types
+
+struct MacroPayload: Codable {
+    let id: PresentationIdentifier
+    let color: GroupColorPayload?
+    let actions: [MacroActionPayload]?
+}
+
+struct MacroActionPayload: Codable {
+    let type: String?
+}
+
 // MARK: - App Models
 
 struct Presentation: Identifiable, Hashable {
@@ -301,6 +313,17 @@ struct Playlist: Identifiable, Hashable {
         self.name = name
         self.items = items
     }
+}
+
+/// A ProPresenter macro. Listing these is read-only; running one fires its actions immediately
+/// (lights, audio, cameras, layers...), so the UI only does that after an explicit confirmation.
+struct Macro: Identifiable, Hashable {
+    var id: String { uuid }
+    let uuid: String
+    let name: String
+    let color: Color?
+    /// The kinds of action the macro performs, in order, without repeats (e.g. "communication").
+    let actionTypes: [String]
 }
 
 struct CompanionButton: Identifiable, Codable, Hashable {

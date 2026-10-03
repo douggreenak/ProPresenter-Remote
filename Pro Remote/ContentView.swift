@@ -78,6 +78,16 @@ struct ContentView: View {
                         .accessibilityLabel("Stream Deck")
                     }
 
+                    ToolbarItem(placement: .automatic) {
+                        Button {
+                            viewModel.showMacros = true
+                        } label: {
+                            Image(systemName: "bolt.fill")
+                        }
+                        .help("Macros")
+                        .accessibilityLabel("Macros")
+                    }
+
                     ToolbarItemGroup(placement: .automatic) {
                         CompanionButtonsView()
                     }
@@ -125,6 +135,9 @@ struct ContentView: View {
         .fullScreenCover(isPresented: $vm.showStreamDeck) {
             StreamDeckView()
         }
+        .fullScreenCover(isPresented: $vm.showMacros) {
+            MacrosView()
+        }
         #else
         .sheet(isPresented: $showRemote) {
             RemoteView()
@@ -132,6 +145,10 @@ struct ContentView: View {
         }
         .sheet(isPresented: $vm.showStreamDeck) {
             StreamDeckView()
+                .frame(minWidth: 720, minHeight: 480)
+        }
+        .sheet(isPresented: $vm.showMacros) {
+            MacrosView()
                 .frame(minWidth: 720, minHeight: 480)
         }
         #endif

@@ -55,6 +55,16 @@ final class ProPresenterViewModel {
         didSet { UserDefaults.standard.set(companionShowNumbers, forKey: "co_numbers") }
     }
     var showStreamDeck: Bool = false
+
+    // MARK: Macros
+    var macros: [Macro] = []
+    var macrosLoading = false
+    var macrosError: String?
+    var showMacros = false
+    /// Macros can switch lights, audio and cameras mid-service, so a tap asks first by default.
+    var confirmMacros: Bool {
+        didSet { UserDefaults.standard.set(confirmMacros, forKey: "pp_confirm_macros") }
+    }
     /// Settings is itself a sheet, and presenting one cover from inside another is unreliable,
     /// so a request made from Settings waits here until that sheet has finished dismissing.
     var pendingStreamDeck: Bool = false
@@ -134,6 +144,7 @@ final class ProPresenterViewModel {
         companionHost = UserDefaults.standard.string(forKey: "co_host") ?? ""
         companionPort = UserDefaults.standard.string(forKey: "co_sat_port") ?? "16622"
         companionShowNumbers = UserDefaults.standard.bool(forKey: "co_numbers")
+        confirmMacros = UserDefaults.standard.object(forKey: "pp_confirm_macros") as? Bool ?? true
 
         webSocket.onSlideChanged = { [weak self] in
             Task { await self?.fetchSlideStatus() }
@@ -624,6 +635,30 @@ final class ProPresenterViewModel {
         }
         guard let index = slide.triggerIndex ?? slide.thumbnailIndex else { return nil }
         return api.thumbnailURL(host: host, port: portInt, uuid: pres.uuid, index: index)
+    }
+
+    /// Loads the macro list (read-only).
+    func fetchMacros() async {
+        guard isConnected, !host.isEmpty else {
+            macrosError = "Connect to ProPresenter first."
+            return
+        }
+        macrosLoading = true
+        defer { macrosLoading = false }
+        do {
+            macros = try await api.fetchMacros(host: host, port: portInt)
+            macrosError = nil
+        } catch {
+            macrosError = "Couldn't load macros from ProPresenter."
+        }
+    }
+
+    /// Runs one macro. The only caller is the confirmation flow in `MacrosView`.
+    func runMacro(_ macro: Macro) async -> Bool {
+        #if os(iOS)
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        #endif
+        return (try? await api.triggerMacro(host: host, port: portInt, uuid: macro.uuid)) ?? false
     }
 
     func openStreamDeck() {

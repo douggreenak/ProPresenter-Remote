@@ -87,6 +87,29 @@ actor ProPresenterAPI {
         return (r.presentationIndex?.index ?? 0, r.presentationIndex?.presentationId?.uuid, r.presentationIndex?.totalCues)
     }
 
+    // MARK: - Macros
+
+    /// Lists the macros. Read-only: this never runs one.
+    func fetchMacros(host: String, port: Int) async throws -> [Macro] {
+        let url = try buildURL(host, port, path: "/v1/macros")
+        let (data, _) = try await session.data(from: url)
+        let payloads = try JSONDecoder().decode([MacroPayload].self, from: data)
+        return payloads.map { payload in
+            var seen = Set<String>()
+            let types = (payload.actions ?? []).compactMap(\.type).filter { seen.insert($0).inserted }
+            let color = payload.color.map { Color(red: $0.red, green: $0.green, blue: $0.blue, opacity: $0.alpha) }
+            return Macro(uuid: payload.id.uuid, name: payload.id.name, color: color, actionTypes: types)
+        }
+    }
+
+    /// Runs a macro on ProPresenter immediately. Only ever called after the user confirms.
+    func triggerMacro(host: String, port: Int, uuid: String) async throws -> Bool {
+        let url = try buildURL(host, port, path: "/v1/macro/\(uuid)/trigger")
+        let (_, response) = try await session.data(from: url)
+        guard let http = response as? HTTPURLResponse else { return false }
+        return (200..<300).contains(http.statusCode)
+    }
+
     // MARK: - Triggers
 
     func triggerNext(host: String, port: Int) async throws {

@@ -100,6 +100,8 @@ struct SettingsView: View {
                 }
             }
 
+            macrosSection
+
             companionSection
         }
         .formStyle(.grouped)
@@ -122,6 +124,19 @@ struct SettingsView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Pro Remote will stop following ProPresenter and clear the slide list until you connect again.")
+        }
+    }
+
+    // MARK: - Macros
+
+    private var macrosSection: some View {
+        @Bindable var vm = viewModel
+        return Section {
+            Toggle("Confirm before running a macro", isOn: $vm.confirmMacros)
+        } header: {
+            Text("Macros")
+        } footer: {
+            Text("Macros can switch lights, audio and cameras. With this on, tapping a macro asks before it runs.")
         }
     }
 

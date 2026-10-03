@@ -16,6 +16,7 @@ macOS will block it the first time because the build is not notarized; [`Release
 - **Slide Grid** -- Responsive thumbnail grid with adjustable sizing. Tap or click any slide to trigger it live.
 - **Remote View** -- A full-screen view for running the service from an iPad: the live slide large, with Previous, back, "Next Up: ...", and Next Slide buttons. Open it from the toolbar's stacked-screens button. If the presentation you're browsing isn't the live one, it says so and offers *Go to Active*.
 - **Virtual Stream Deck** -- Your Bitfocus Companion buttons as a native 8x4 key grid. Icons, colors, and live feedback come straight from Companion; pressing a key sends a press and release like a hardware deck, so hold and long-press actions work. See [Bitfocus Companion](#bitfocus-companion).
+- **Macros** -- ProPresenter's macros as a grid of tiles in their own colors, with icons for what each does and a search box. Open it with the lightning-bolt button in the toolbar. Tapping a macro asks for confirmation before it runs (macros can switch lights, audio, and cameras); the confirmation can be turned off in Settings.
 - **Transport Controls** -- First / Previous / Next / Last slide buttons, plus Previous Item / Next Item to navigate between presentations. Buttons disable themselves when they can't act.
 - **Preview-only items** -- Some playlist items can't be read from ProPresenter's API (it answers 404 for their slide details). Pro Remote still shows their slides, rebuilt from the playlist thumbnails, with a **Preview** badge. They can't be started from the app; start them in ProPresenter and the app's controls take over.
 - **Automatic Discovery** -- ProPresenter is found over Bonjour; pick it from a list in Settings instead of typing an address.
@@ -96,6 +97,7 @@ The app is built with modern Swift concurrency and SwiftUI:
 | `PresentationListView.swift` | Sidebar with playlist and presentation lists |
 | `SlideGridView.swift` | Adaptive slide thumbnail grid, header, and transport bar |
 | `RemoteView.swift` | Full-screen Remote view with large live slide and transport |
+| `MacrosView.swift` | ProPresenter macros page (tile grid, search, confirm-then-run) |
 | `StreamDeckView.swift` | Native virtual Stream Deck (key grid, press handling, status) |
 | `CompanionDeck.swift` | Companion Satellite API client (TCP, key images, presses, reconnect) |
 | `CompanionButtonsView.swift` | Configurable HTTP trigger buttons |
@@ -147,6 +149,10 @@ ProPresenter won't share that item's slide details through its API, so Pro Remot
 - The app uses both HTTP polling (every 1 second) and a WebSocket connection for real-time updates.
 - If the connection badge turns yellow, the WebSocket is reconnecting with exponential backoff (3s, 6s, 12s, up to 30s).
 - Ensure your network is stable and the ProPresenter machine is not going to sleep.
+
+### Macros don't load
+
+The Macros page needs a connection to ProPresenter (the connection badge should be green). Opening the page only lists macros; nothing runs until you tap a tile and confirm. Use the reload button on the page, or **Try Again**, if the list is empty.
 
 ### The Stream Deck says "Can't Reach Companion"
 

@@ -97,3 +97,8 @@
 Notes for future work:
 - The Mac build is NOT notarized (no Developer ID certificate on the build machine), so a browser-downloaded copy is blocked until approved once (System Settings > Privacy & Security > Open Anyway, or `xattr -dr com.apple.quarantine`). A locally built or git-cloned copy is not quarantined. Notarizing needs a Developer ID Application certificate plus `notarytool` credentials.
 - Rebuild Releases/Pro-Remote-macOS.zip with Scripts/build-mac-app.sh whenever the app changes; BUILD-INFO.txt shows which commit the zip came from.
+
+### Batch 10 - ProPresenter Macros Page (DONE)
+- [x] 73. MacrosView.swift: ProPresenter macros as a tile grid (macro color accent, action-type icons, search, reload), opened from a lightning-bolt toolbar button next to the Stream Deck button
+- [x] 74. Listing is read-only (`GET /v1/macros`). Running (`GET /v1/macro/{uuid}/trigger`) only happens from a tile tap and, by default, an explicit "Run macro?" confirmation; Settings > Macros has a switch to turn the confirmation off. Never trigger macros while testing: they control real lights, audio mixer, cameras and click tracks
+- [x] 75. The trigger endpoint has NOT been verified against a live ProPresenter (testing during a live event, by request); a 404 would surface as the "Macro didn't run" alert
