@@ -4,6 +4,130 @@ struct PresentationListView: View {
     @Environment(ProPresenterViewModel.self) private var viewModel
 
     var body: some View {
+        #if os(macOS)
+        macBody
+        #else
+        standardBody
+        #endif
+    }
+
+    // MARK: - macOS sidebar
+
+    #if os(macOS)
+    /// A playlist menu on top and one native sidebar list underneath, instead of two stacked
+    /// scrolling boxes: the items get the whole column, and selection looks like every other Mac app.
+    private var macBody: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Menu {
+                    ForEach(viewModel.playlists) { playlist in
+                        Button {
+                            Task { await viewModel.selectPlaylist(playlist) }
+                        } label: {
+                            if playlist.uuid == viewModel.selectedPlaylist?.uuid {
+                                Label(playlist.name, systemImage: "checkmark")
+                            } else {
+                                Text(playlist.name)
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("PLAYLIST")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                            Text(viewModel.selectedPlaylist?.name ?? "Choose a playlist")
+                                .font(.system(size: 15, weight: .semibold))
+                                .lineLimit(1)
+                        }
+                        Spacer(minLength: 4)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .menuStyle(.button)
+                .buttonStyle(.plain)
+                .menuIndicator(.hidden)
+                .disabled(viewModel.playlists.isEmpty)
+                .accessibilityLabel("Playlist: \(viewModel.selectedPlaylist?.name ?? "none selected")")
+
+                RefreshButton()
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 10)
+            .padding(.bottom, 8)
+
+            Divider()
+
+            if viewModel.isLoading {
+                VStack(spacing: 8) {
+                    ProgressView()
+                    Text("Connecting...")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if !viewModel.playlistItems.isEmpty {
+                ScrollViewReader { proxy in
+                    List(selection: macSelection) {
+                        ForEach(Array(viewModel.playlistItems.enumerated()), id: \.element.listID) { index, item in
+                            MacPresentationRow(item: item, index: index)
+                                .tag(item.listID)
+                                .id(item.listID)
+                        }
+                    }
+                    .listStyle(.sidebar)
+                    .tint(ProPresenterViewModel.liveColor)
+                    .onAppear {
+                        proxy.scrollTo(viewModel.selectedPresentation?.listID, anchor: .center)
+                    }
+                    .onChange(of: viewModel.selectedPresentation?.listID) { _, newID in
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            proxy.scrollTo(newID, anchor: .center)
+                        }
+                    }
+                }
+            } else if viewModel.selectedPlaylist != nil {
+                ContentUnavailableView {
+                    Label("No Items", systemImage: "tray")
+                } description: {
+                    Text("This playlist is empty.")
+                }
+            } else if viewModel.playlists.isEmpty && !viewModel.isConnected {
+                ContentUnavailableView {
+                    Label("Not Connected", systemImage: "wifi.slash")
+                } description: {
+                    Text("Connect to ProPresenter in Settings.")
+                } actions: {
+                    Button("Open Settings") {
+                        viewModel.showSettings = true
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            } else {
+                Spacer()
+            }
+        }
+        .navigationTitle("Playlists")
+    }
+
+    private var macSelection: Binding<String?> {
+        Binding(
+            get: { viewModel.selectedPresentation?.listID },
+            set: { id in
+                guard let id, let item = viewModel.playlistItems.first(where: { $0.listID == id }) else { return }
+                Task { await viewModel.selectPresentation(item) }
+            }
+        )
+    }
+    #endif
+
+    // MARK: - iPad / iPhone sidebar
+
+    private var standardBody: some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
                 Text("Playlists")
@@ -262,3 +386,51 @@ private struct PresentationRow: View {
         return .clear
     }
 }
+
+#if os(macOS)
+/// One item in the Mac sidebar: its position, its name, and a LIVE badge when it is the one on screen.
+private struct MacPresentationRow: View {
+    @Environment(ProPresenterViewModel.self) private var viewModel
+    let item: Presentation
+    let index: Int
+
+    var body: some View {
+        let isLive = item.uuid == viewModel.livePresentationUUID
+
+        HStack(spacing: 8) {
+            Text("\(index + 1)")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .frame(width: 20, alignment: .trailing)
+
+            Text(item.name)
+                .font(.system(size: 13, weight: isLive ? .semibold : .regular))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .help(item.name)
+
+            Spacer(minLength: 4)
+
+            if isLive && viewModel.liveArrangementMismatch {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.yellow)
+                    .help("Arrangement mismatch - ProPresenter's library arrangement doesn't match Sunday Service's selection for this song.")
+            }
+
+            if isLive {
+                Text("LIVE")
+                    .font(.system(size: 9, weight: .heavy))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(ProPresenterViewModel.liveColor, in: Capsule())
+            }
+        }
+        .padding(.vertical, 3)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(item.name)\(isLive ? ", live" : "")\(isLive && viewModel.liveArrangementMismatch ? ", arrangement mismatch" : "")")
+        .accessibilityHint("Double tap to select")
+    }
+}
+#endif

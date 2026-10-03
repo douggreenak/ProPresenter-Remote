@@ -326,14 +326,6 @@ struct Macro: Identifiable, Hashable {
     let actionTypes: [String]
 }
 
-struct CompanionButton: Identifiable, Codable, Hashable {
-    var id = UUID()
-    var label: String
-    var urlString: String
-
-    var url: URL? { URL(string: urlString) }
-}
-
 // MARK: - Utilities
 
 extension Collection {

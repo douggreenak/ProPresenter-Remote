@@ -33,6 +33,23 @@ struct ContentView: View {
             // Refresh and the connection badge unreachable once connected.
             SlideGridView()
                 .toolbar {
+                    #if os(macOS)
+                    // Left to right: what you're looking at, then connection, then tools. Fixed spacers
+                    // keep each group in its own glass capsule instead of one crowded strip.
+                    ToolbarItem(placement: .automatic) {
+                        if let presentation = viewModel.selectedPresentation {
+                            PresentationStatusBadges(presentation: presentation)
+                        }
+                    }
+                    .sharedBackgroundVisibility(.hidden)
+
+                    ToolbarItem(placement: .automatic) {
+                        ZoomControl()
+                    }
+
+                    ToolbarSpacer(.fixed, placement: .automatic)
+                    #endif
+
                     ToolbarItem(placement: .automatic) {
                         ConnectionStatusBadge(
                             isConnected: viewModel.isConnected,
@@ -42,6 +59,10 @@ struct ContentView: View {
                             viewModel.showSettings = true
                         }
                     }
+
+                    #if os(macOS)
+                    ToolbarSpacer(.fixed, placement: .automatic)
+                    #endif
 
                     ToolbarItem(placement: .automatic) {
                         Button {
@@ -62,6 +83,10 @@ struct ContentView: View {
                         .help("Settings")
                         .accessibilityLabel("Settings")
                     }
+
+                    #if os(macOS)
+                    ToolbarSpacer(.fixed, placement: .automatic)
+                    #endif
 
                     ToolbarItem(placement: .automatic) {
                         Button {
@@ -86,10 +111,6 @@ struct ContentView: View {
                         }
                         .help("Macros")
                         .accessibilityLabel("Macros")
-                    }
-
-                    ToolbarItemGroup(placement: .automatic) {
-                        CompanionButtonsView()
                     }
 
                     ToolbarItem(placement: .primaryAction) {

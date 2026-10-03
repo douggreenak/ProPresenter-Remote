@@ -90,7 +90,9 @@ struct SlideGridView: View {
     var body: some View {
         VStack(spacing: 0) {
             if let presentation = viewModel.selectedPresentation, !presentation.slides.isEmpty {
+                #if os(iOS)
                 headerBar(for: presentation)
+                #endif
 
                 ScrollViewReader { proxy in
                     ScrollView {
@@ -157,11 +159,28 @@ struct SlideGridView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: viewModel.selectedPresentation?.uuid)
-        .navigationTitle("")
         #if os(macOS)
-        .navigationSubtitle("")
+        .navigationTitle(viewModel.selectedPresentation?.name ?? "")
+        .navigationSubtitle(macSubtitle)
+        #else
+        .navigationTitle("")
         #endif
     }
+
+    #if os(macOS)
+    /// "19 slides · Chorus" - the slide count, plus the section that is on screen when this is the
+    /// live presentation.
+    private var macSubtitle: String {
+        guard let presentation = viewModel.selectedPresentation else { return "" }
+        var text = "\(presentation.slides.count) slides"
+        if viewModel.isViewingLivePresentation,
+           let current = presentation.slides[safe: viewModel.liveSlideIndex],
+           !current.groupName.isEmpty {
+            text += " · \(current.groupName)"
+        }
+        return text
+    }
+    #endif
 
     /// Drops the zoom slider when the full header can't fit (portrait iPhone) rather than letting
     /// the whole detail column grow wider than the screen.
@@ -213,95 +232,38 @@ struct SlideGridView: View {
             Spacer()
 
             if showsZoom {
-                HStack(spacing: 6) {
-                    Image(systemName: "minus.magnifyingglass")
-                        .font(.system(size: 11))
-                        .foregroundColor(Color(white: 0.4))
-                    Slider(value: $slideMinWidth, in: 120...350, step: 10)
-                        .frame(width: 120)
-                    Image(systemName: "plus.magnifyingglass")
-                        .font(.system(size: 11))
-                        .foregroundColor(Color(white: 0.4))
-                    Text("\(Int(slideMinWidth))")
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .foregroundColor(Color(white: 0.5))
-                        .frame(width: 28, alignment: .trailing)
-                        .contentTransition(.numericText())
-                        .animation(.snappy(duration: 0.15), value: slideMinWidth)
-                }
+                ZoomControl()
             }
 
-            if !viewModel.isViewingLivePresentation && !viewModel.livePresentationUUID.isEmpty {
-                Button {
-                    Task { await viewModel.goToLive() }
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "dot.radiowaves.left.and.right")
-                            .font(.system(size: 8))
-                        Text("Go to Active")
-                            .font(.system(size: 9, weight: .semibold))
-                    }
-                    .foregroundStyle(ProPresenterViewModel.liveColor)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
-                    .background(ProPresenterViewModel.liveColor.opacity(0.15), in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Go to active presentation")
-            }
-
-            if presentation.previewOnly && !viewModel.isViewingLivePresentation {
-                Label("Preview", systemImage: "eye")
-                    .labelStyle(.titleAndIcon)
-                    .font(.system(size: 9, weight: .heavy))
-                    .foregroundStyle(Color(white: 0.85))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
-                    .background(Color(white: 0.25), in: Capsule())
-                    .help("ProPresenter won't share this item's slide details, so only thumbnails are shown. Start it in ProPresenter and the controls here will take over.")
-                    .accessibilityLabel("Preview only")
-                    .accessibilityHint("ProPresenter won't share this item's slide details. Start it in ProPresenter to control it from here.")
-            }
-
-            if viewModel.isViewingLivePresentation && viewModel.liveArrangementMismatch {
-                HStack(spacing: 4) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 8))
-                    Text("Arrangement Mismatch")
-                        .font(.system(size: 9, weight: .heavy))
-                }
-                .foregroundStyle(.black)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(Color.yellow, in: Capsule())
-                .help("ProPresenter's library arrangement for this song doesn't match the one Sunday Service has selected, so the app is showing the raw slide order instead. Re-select the correct arrangement in ProPresenter to fix this.")
-                .accessibilityLabel("Arrangement mismatch")
-                .accessibilityHint("ProPresenter's library arrangement doesn't match the one Sunday Service selected. Showing the raw slide order instead. Re-select the correct arrangement in ProPresenter to fix this.")
-            }
-
-            if viewModel.isViewingLivePresentation {
-                PhaseAnimator([false, true]) { isGlowing in
-                    Text("LIVE")
-                        .font(.system(size: 9, weight: .heavy))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(ProPresenterViewModel.liveColor, in: Capsule())
-                        .shadow(color: ProPresenterViewModel.liveColor.opacity(isGlowing ? 0.5 : 0), radius: isGlowing ? 5 : 0)
-                } animation: { _ in
-                    .easeInOut(duration: 1.5)
-                }
-            }
+            PresentationStatusBadges(presentation: presentation)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .background(Color(white: 0.09))
-        .animation(.easeInOut(duration: 0.3), value: viewModel.isViewingLivePresentation)
-        .animation(.easeInOut(duration: 0.3), value: viewModel.liveArrangementMismatch)
     }
 
     private func transportButton(_ label: String, icon: String? = nil, iconLeading: Bool = true, prominent: Bool = false, compact: Bool = false, disabled: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        #if os(macOS)
+        return Button(action: action) {
+            HStack(spacing: 5) {
+                if let icon, iconLeading || compact {
+                    Image(systemName: icon).font(.system(size: 12, weight: .bold))
+                }
+                if !(compact && icon != nil) {
+                    Text(label).font(.system(size: 13, weight: .semibold))
+                }
+                if let icon, !iconLeading, !compact {
+                    Image(systemName: icon).font(.system(size: 12, weight: .bold))
+                }
+            }
+            .padding(.horizontal, 6)
+        }
+        .macTransportStyle(prominent: prominent)
+        .controlSize(.large)
+        .disabled(disabled)
+        .accessibilityLabel(label)
+        #else
+        return Button(action: action) {
             HStack(spacing: 5) {
                 if let icon, iconLeading || compact {
                     Image(systemName: icon)
@@ -328,10 +290,22 @@ struct SlideGridView: View {
         .buttonStyle(.plain)
         .disabled(disabled)
         .accessibilityLabel(label)
+        #endif
     }
 
     private func iconTransportButton(_ icon: String, label: String, disabled: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        #if os(macOS)
+        return Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .bold))
+                .frame(width: 18)
+        }
+        .macTransportStyle(prominent: false)
+        .controlSize(.large)
+        .disabled(disabled)
+        .accessibilityLabel(label)
+        #else
+        return Button(action: action) {
             Image(systemName: icon)
                 .font(.system(size: 12, weight: .bold))
                 .foregroundColor(disabled ? Color(white: 0.2) : Color(white: 0.85))
@@ -345,6 +319,7 @@ struct SlideGridView: View {
         .buttonStyle(.plain)
         .disabled(disabled)
         .accessibilityLabel(label)
+        #endif
     }
 
     private func buttonBackground(disabled: Bool, prominent: Bool) -> Color {
@@ -360,8 +335,13 @@ struct SlideGridView: View {
             transportRow(compact: true)
         }
         .padding(.horizontal, 8)
+        #if os(macOS)
+        .frame(height: 56)
+        .background(.bar)
+        #else
         .frame(height: 48)
         .background(Color(white: 0.07))
+        #endif
     }
 
     private func transportRow(compact: Bool) -> some View {
@@ -519,3 +499,17 @@ private struct SlideCell: View {
         .accessibilityHint(slide.enabled ? "Double tap to trigger this slide" : "Slide is disabled")
     }
 }
+
+#if os(macOS)
+private extension View {
+    /// Native Liquid Glass buttons for the transport bar; the main action gets the orange accent.
+    @ViewBuilder
+    func macTransportStyle(prominent: Bool) -> some View {
+        if prominent {
+            self.buttonStyle(.glassProminent).tint(ProPresenterViewModel.liveColor)
+        } else {
+            self.buttonStyle(.glass)
+        }
+    }
+}
+#endif

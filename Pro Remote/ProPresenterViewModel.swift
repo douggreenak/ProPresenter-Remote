@@ -37,11 +37,8 @@ final class ProPresenterViewModel {
     var port: String {
         didSet { UserDefaults.standard.set(port, forKey: "pp_port") }
     }
-    var companionButtons: [CompanionButton] {
-        didSet { saveCompanionButtons() }
-    }
-    /// Where Bitfocus Companion is running (often the same machine as ProPresenter). Its web
-    /// interface on this address is what the virtual Stream Deck shows.
+    /// Where Bitfocus Companion is running (often the same machine as ProPresenter); the virtual
+    /// Stream Deck connects to it here.
     var companionHost: String {
         didSet { UserDefaults.standard.set(companionHost, forKey: "co_host") }
     }
@@ -140,7 +137,8 @@ final class ProPresenterViewModel {
     init() {
         host = UserDefaults.standard.string(forKey: "pp_host") ?? ""
         port = UserDefaults.standard.string(forKey: "pp_port") ?? "1025"
-        companionButtons = Self.loadCompanionButtons()
+        // The old per-button Companion shortcuts are gone; drop what they saved.
+        UserDefaults.standard.removeObject(forKey: "pp_companionButtons")
         companionHost = UserDefaults.standard.string(forKey: "co_host") ?? ""
         companionPort = UserDefaults.standard.string(forKey: "co_sat_port") ?? "16622"
         companionShowNumbers = UserDefaults.standard.bool(forKey: "co_numbers")
@@ -672,26 +670,5 @@ final class ProPresenterViewModel {
 
     func testCompanion() async -> Bool {
         await CompanionDeck.probe(host: companionHostTrimmed, port: companionPortInt)
-    }
-
-    func triggerCompanionButton(_ button: CompanionButton) async {
-        guard let url = button.url else { return }
-        _ = try? await URLSession.shared.data(from: url)
-    }
-
-    // MARK: - Persistence
-
-    private func saveCompanionButtons() {
-        if let data = try? JSONEncoder().encode(companionButtons) {
-            UserDefaults.standard.set(data, forKey: "pp_companionButtons")
-        }
-    }
-
-    private static func loadCompanionButtons() -> [CompanionButton] {
-        guard let data = UserDefaults.standard.data(forKey: "pp_companionButtons"),
-              let buttons = try? JSONDecoder().decode([CompanionButton].self, from: data) else {
-            return []
-        }
-        return buttons
     }
 }

@@ -21,7 +21,6 @@ macOS will block it the first time because the build is not notarized; [`Release
 - **Preview-only items** -- Some playlist items can't be read from ProPresenter's API (it answers 404 for their slide details). Pro Remote still shows their slides, rebuilt from the playlist thumbnails, with a **Preview** badge. They can't be started from the app; start them in ProPresenter and the app's controls take over.
 - **Automatic Discovery** -- ProPresenter is found over Bonjour; pick it from a list in Settings instead of typing an address.
 - **Keyboard Shortcuts** -- Arrow keys, Space, Return, Escape, and Cmd+arrow shortcuts for hands-free control (see below).
-- **Companion Buttons** -- Up to 6 configurable HTTP trigger buttons for Bitfocus Companion or other automation tools.
 - **WebSocket Updates** -- Real-time slide change notifications with automatic reconnection and exponential backoff.
 - **Thumbnail & Presentation Caching** -- In-memory image cache and cached presentation data avoid flicker and minimize API calls (and keep ProPresenter from showing focus outlines).
 - **Accessibility** -- VoiceOver labels, traits, and hints throughout. Full keyboard navigation support.
@@ -84,7 +83,6 @@ Notes:
 - The deck shows the 32 keys (8 columns x 4 rows) of the page Companion assigns to the surface. Page changes made with Companion buttons show up here, and the current page is shown under the keys.
 - Companion draws each button's location ("1/0/3") across the top of its picture. Pro Remote crops that off so keys look like a real deck. Turn on **Show button numbers** in Settings to see it, which also shows Companion's small warning triangle on buttons that have a problem.
 - Closing the deck disconnects it, releases any held key, and removes the surface from Companion. Backgrounding the app does the same, and it reconnects when you return.
-- The older **Companion Buttons** (the labelled buttons in the toolbar, edited through the "..." button) are separate: each one just sends an HTTP GET to a URL you enter.
 
 ## Architecture
 
@@ -100,7 +98,6 @@ The app is built with modern Swift concurrency and SwiftUI:
 | `MacrosView.swift` | ProPresenter macros page (tile grid, search, confirm-then-run) |
 | `StreamDeckView.swift` | Native virtual Stream Deck (key grid, press handling, status) |
 | `CompanionDeck.swift` | Companion Satellite API client (TCP, key images, presses, reconnect) |
-| `CompanionButtonsView.swift` | Configurable HTTP trigger buttons |
 | `SettingsView.swift` | Connection settings: ProPresenter, discovery, Companion |
 | `ProPresenterViewModel.swift` | `@Observable` view model, app state and business logic |
 | `ProPresenterAPI.swift` | REST API client (actor-isolated) |

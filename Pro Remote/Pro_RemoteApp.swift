@@ -11,7 +11,7 @@ struct Pro_RemoteApp: App {
                 .preferredColorScheme(.dark)
                 .keepScreenAwake()
                 #if os(macOS)
-                .frame(minWidth: 900, minHeight: 600)
+                .frame(minWidth: 1000, minHeight: 600)
                 #endif
         }
         #if os(macOS)

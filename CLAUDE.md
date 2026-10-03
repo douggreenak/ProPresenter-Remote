@@ -102,3 +102,13 @@ Notes for future work:
 - [x] 73. MacrosView.swift: ProPresenter macros as a tile grid (macro color accent, action-type icons, search, reload), opened from a lightning-bolt toolbar button next to the Stream Deck button
 - [x] 74. Listing is read-only (`GET /v1/macros`). Running (`GET /v1/macro/{uuid}/trigger`) only happens from a tile tap and, by default, an explicit "Run macro?" confirmation; Settings > Macros has a switch to turn the confirmation off. Never trigger macros while testing: they control real lights, audio mixer, cameras and click tracks
 - [x] 75. The trigger endpoint has NOT been verified against a live ProPresenter (testing during a live event, by request); a 404 would surface as the "Macro didn't run" alert
+
+### Batch 11 - Removed per-button Companion shortcuts (DONE)
+- [x] 76. Removed the older Companion buttons (labelled HTTP-GET shortcuts in the toolbar plus their "..." editor, CompanionButton model, view-model storage and CompanionButtonsView.swift). The Companion Stream Deck replaces them. Items 33 and 53 above refer to the removed feature. The old saved `pp_companionButtons` setting is deleted on launch
+
+### Batch 12 - Mac Look (DONE)
+- [x] 77. Mac: presentation name + "N slides · section" now live in the native window title/subtitle; the custom header band is iPad/iPhone only (shared ZoomControl + PresentationStatusBadges in SlideGridChrome.swift feed both)
+- [x] 78. Mac toolbar: badges and zoom, then connection, then Refresh/Settings, then Stream Deck/Macros/Remote, each in its own glass group (ToolbarSpacer .fixed). Zoom shows no number and no tick marks on Mac; minimum window width raised to 1000 so every button stays visible
+- [x] 79. Mac sidebar: playlist Menu on top + one native sidebar List (replaces the two stacked scroll boxes); orange tint scoped to the list and slider (a root-level tint turned every glass button orange)
+- [x] 80. Mac transport bar: native glass buttons (Next is the orange glassProminent) on a material bar
+- iPad/iPhone layouts are unchanged by this batch (all Mac-only changes are behind #if os(macOS))
