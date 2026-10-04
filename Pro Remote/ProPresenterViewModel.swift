@@ -17,6 +17,10 @@ final class ProPresenterViewModel {
     var selectedPresentation: Presentation?
     var liveSlideIndex: Int = 0
     var livePresentationUUID: String = ""
+    /// The playlist *item* that is live. A playlist can hold the same presentation twice, so the
+    /// presentation's uuid alone can't say which row is live. Empty when ProPresenter doesn't say.
+    var liveItemUUID: String = ""
+    private var lastItemCheck: ContinuousClock.Instant?
     /// True when the live presentation's arrangement pin (from the Sunday Service playlist
     /// item) doesn't match what ProPresenter's engine is actually running, so the app fell
     /// back to Master. Surfaced in the UI so whoever's running ProPresenter knows to
@@ -102,7 +106,21 @@ final class ProPresenterViewModel {
     var companionPortInt: Int { Int(companionPort) ?? 16622 }
 
     var isViewingLivePresentation: Bool {
-        selectedPresentation?.uuid == livePresentationUUID
+        selectedPresentation.map(isLive) ?? false
+    }
+
+    /// Whether this playlist row is the one that is live (same presentation *and*, when known,
+    /// same playlist item).
+    func isLive(_ presentation: Presentation) -> Bool {
+        guard !livePresentationUUID.isEmpty, presentation.uuid == livePresentationUUID else { return false }
+        guard !liveItemUUID.isEmpty, let item = presentation.itemUUID else { return true }
+        return item == liveItemUUID
+    }
+
+    /// The row in the loaded playlist that is live, preferring the exact item over a duplicate.
+    private func liveRow(for uuid: String) -> Presentation? {
+        playlistItems.first(where: { $0.uuid == uuid && !liveItemUUID.isEmpty && $0.itemUUID == liveItemUUID })
+            ?? playlistItems.first(where: { $0.uuid == uuid })
     }
 
     var currentSlideIndex: Int {
@@ -440,21 +458,26 @@ final class ProPresenterViewModel {
         }
         liveArrangementMismatch = mismatchDetected
 
-        let previousLiveUUID = livePresentationUUID
         livePresentationUUID = active.uuid
+        liveItemUUID = arrangementIsAuthoritative ? (authoritative?.itemUUID ?? "") : ""
+
+        // Landing on the item the user was already viewing puts them back on the live link.
+        if userOverrodeSelection, let viewed = selectedPresentation, isLive(viewed) {
+            userOverrodeSelection = false
+        }
 
         let cacheKey = "\(active.uuid)|\(active.arrangementUUID ?? "")"
         presentationCache[cacheKey] = active
 
         if !userOverrodeSelection || selectedPresentation == nil {
-            if !playlistItems.contains(where: { $0.uuid == active.uuid }) || selectedPlaylist == nil {
-                await findAndSelectPlaylistContaining(active.uuid)
+            if liveRow(for: active.uuid).map({ !liveItemUUID.isEmpty && $0.itemUUID != liveItemUUID }) ?? true || selectedPlaylist == nil {
+                await findAndSelectPlaylistContaining(active.uuid, itemUUID: liveItemUUID, preferredPlaylistUUID: authoritativeResult?.playlistUUID)
                 // Don't re-apply a pin we just proved doesn't work: mismatchDetected means the
                 // live-engine check above already determined the pin isn't usable and switched
                 // to Master on purpose - this block's job is only to recover a pin when we
                 // genuinely don't have one yet, not to overwrite a verified fallback.
                 if !arrangementIsAuthoritative, !mismatchDetected,
-                   let arrUUID = playlistItems.first(where: { $0.uuid == active.uuid })?.arrangementUUID,
+                   let arrUUID = liveRow(for: active.uuid)?.arrangementUUID,
                    active.arrangementUUID != arrUUID,
                    let corrected = try? await api.fetchActivePresentation(host: host, port: portInt, arrangementUUID: arrUUID) {
                     active = corrected
@@ -462,39 +485,29 @@ final class ProPresenterViewModel {
                     presentationCache[correctedKey] = active
                 }
             }
-            if let matchingItem = playlistItems.first(where: { $0.uuid == active.uuid }) {
+            if let matchingItem = liveRow(for: active.uuid) {
                 active.itemUUID = matchingItem.itemUUID
                 active.playlistUUID = matchingItem.playlistUUID
                 active.playlistItemIndex = matchingItem.playlistItemIndex
             }
             selectedPresentation = active
         }
-
-        if active.uuid != previousLiveUUID && userOverrodeSelection {
-            if let matchingItem = playlistItems.first(where: { $0.uuid == active.uuid }) {
-                userOverrodeSelection = false
-                if !arrangementIsAuthoritative, !mismatchDetected,
-                   matchingItem.arrangementUUID != active.arrangementUUID,
-                   let corrected = try? await api.fetchActivePresentation(host: host, port: portInt, arrangementUUID: matchingItem.arrangementUUID) {
-                    active = corrected
-                    let correctedKey = "\(active.uuid)|\(active.arrangementUUID ?? "")"
-                    presentationCache[correctedKey] = active
-                }
-                active.itemUUID = matchingItem.itemUUID
-                active.playlistUUID = matchingItem.playlistUUID
-                active.playlistItemIndex = matchingItem.playlistItemIndex
-                selectedPresentation = active
-            }
-        }
+        // Otherwise the user is deliberately on another item: stay there. Go to Active, Escape, or
+        // selecting the live item brings the link back.
     }
 
-    private func findAndSelectPlaylistContaining(_ presentationUUID: String) async {
-        for playlist in playlists {
-            if let items = try? await api.fetchPlaylistItems(host: host, port: portInt, uuid: playlist.uuid),
-               items.contains(where: { $0.uuid == presentationUUID }) {
-                selectedPlaylist = playlist
-                playlistItems = items
-                return
+    /// Finds the playlist holding the live item and shows it. The playlist ProPresenter says is live
+    /// is tried first, and an exact item match wins over merely having the same presentation.
+    private func findAndSelectPlaylistContaining(_ presentationUUID: String, itemUUID: String = "", preferredPlaylistUUID: String? = nil) async {
+        let ordered = playlists.sorted { a, _ in a.uuid == preferredPlaylistUUID }
+        for exact in itemUUID.isEmpty ? [false] : [true, false] {
+            for playlist in ordered {
+                if let items = try? await api.fetchPlaylistItems(host: host, port: portInt, uuid: playlist.uuid),
+                   items.contains(where: { $0.uuid == presentationUUID && (!exact || $0.itemUUID == itemUUID) }) {
+                    selectedPlaylist = playlist
+                    playlistItems = items
+                    return
+                }
             }
         }
     }
@@ -535,8 +548,22 @@ final class ProPresenterViewModel {
             livePresentationUUID = uuid
             if uuid != previousUUID {
                 await fetchActivePresentation()
+            } else if await liveItemChanged() {
+                // A different row of the same presentation went live (a song that appears twice).
+                await fetchActivePresentation()
             }
         }
+    }
+
+    /// Asks ProPresenter which playlist item is live, at most about once a second, and reports whether
+    /// it differs from the one the app is following.
+    private func liveItemChanged() async -> Bool {
+        guard !liveItemUUID.isEmpty else { return false }
+        if let last = lastItemCheck, ContinuousClock.now - last < .milliseconds(900) { return false }
+        lastItemCheck = .now
+        guard let result = try? await api.fetchActivePlaylistItem(host: host, port: portInt),
+              let item = result.item.asPresentation()?.itemUUID else { return false }
+        return item != liveItemUUID
     }
 
     // MARK: - Selection (read-only, never pushes state)
@@ -546,11 +573,7 @@ final class ProPresenterViewModel {
         // (e.g. an announcement loop before and after another item), and those rows are
         // distinct entries. Keying on uuid made the second copy unselectable.
         if presentation.listID == selectedPresentation?.listID { return }
-        if presentation.uuid != livePresentationUUID {
-            userOverrodeSelection = true
-        } else {
-            userOverrodeSelection = false
-        }
+        userOverrodeSelection = !isLive(presentation)
         await loadPresentation(presentation)
     }
 
@@ -635,7 +658,7 @@ final class ProPresenterViewModel {
         //   comment on `apiTriggerIndex` in `ProPresenterAPI.mapPayload`). This can't address a
         //   slide that only exists at its position because of a repeat in the playlist's pin,
         //   but that's a rare cost for "start a different song partway through" specifically.
-        let isAlreadyLive = pres.uuid == livePresentationUUID
+        let isAlreadyLive = isLive(pres)
         guard let apiIndex = isAlreadyLive ? slide.thumbnailIndex : slide.triggerIndex else { return }
 
         liveSlideIndex = index
@@ -669,7 +692,7 @@ final class ProPresenterViewModel {
     func goToLive() async {
         guard !livePresentationUUID.isEmpty else { return }
         userOverrodeSelection = false
-        if let liveItem = playlistItems.first(where: { $0.uuid == livePresentationUUID }) {
+        if let liveItem = liveRow(for: livePresentationUUID) {
             await loadPresentation(liveItem)
         } else {
             await fetchActivePresentation()

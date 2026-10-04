@@ -312,7 +312,7 @@ private struct PresentationRow: View {
 
     var body: some View {
         let isSelected = item.listID == viewModel.selectedPresentation?.listID
-        let isLive = item.uuid == viewModel.livePresentationUUID
+        let isLive = viewModel.isLive(item)
 
         Button {
             showDetail()
@@ -395,7 +395,7 @@ private struct MacPresentationRow: View {
     let index: Int
 
     var body: some View {
-        let isLive = item.uuid == viewModel.livePresentationUUID
+        let isLive = viewModel.isLive(item)
 
         HStack(spacing: 8) {
             Text("\(index + 1)")

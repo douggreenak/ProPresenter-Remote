@@ -1,6 +1,6 @@
 Pro Remote for macOS
-Built:    2026-10-04 10:02 AKDT
-Source:   commit 995296c
+Built:    2026-10-04 10:24 AKDT
+Source:   commit 7392043
 Archs:    x86_64 arm64
 Needs:    macOS 26.4 or later
 Signed:   Apple Development: Andrew Chapman (S3227497RG) - team THW3L89YM6

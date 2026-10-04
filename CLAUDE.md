@@ -122,3 +122,7 @@ Notes for future work:
 - [x] 86. Input lock: slide triggers (taps, keys, Remote, menu commands) are ignored while resyncing (max 8 s) and for 0.7 s after, and for 0.6 s after the Mac app becomes active, so the tap that opens the app can't fire a slide. Companion deck keys are not affected
 - [x] 87. Remote view asks ProPresenter for 1600 px thumbnails (`?quality=`, default is 400 px, max 1920) and shows the small cached one while the large one loads
 - [x] 88. iPhone toolbar: the gear is hidden on compact width (the connection badge opens Settings) so Stream Deck, Macros and Remote no longer fall into the "..." overflow menu
+- [x] 89. Mac: zoom control keeps its magnifier icons inside the toolbar's glass capsule (padding, brighter icons); the Stream Deck window is never opened or restored at launch
+- [x] 90. Follow ProPresenter by playlist *item*, not just presentation: `liveItemUUID` comes from `/v1/playlist/active`, so a presentation that appears twice in a playlist (the announcement loop) highlights only the row that is really live, and clicking the other copy in ProPresenter makes the app follow (checked about once a second)
+- [x] 91. The app stays put only when the user deliberately browsed to another item; Go to Active, Escape, or the live item arriving at the row being viewed restores the link. Previously a change of live item always pulled the view along, overriding that choice
+
