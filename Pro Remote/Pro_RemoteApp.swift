@@ -59,6 +59,9 @@ struct Pro_RemoteApp: App {
                 .frame(minWidth: 480, minHeight: 300)
         }
         .defaultSize(width: 860, height: 520)
+        // Only ever opened by the Pop Out button: not at launch, and not restored on relaunch.
+        .defaultLaunchBehavior(.suppressed)
+        .restorationBehavior(.disabled)
 
         Settings {
             SettingsView()

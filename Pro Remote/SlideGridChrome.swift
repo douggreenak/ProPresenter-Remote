@@ -9,7 +9,7 @@ struct ZoomControl: View {
         HStack(spacing: 6) {
             Image(systemName: "minus.magnifyingglass")
                 .font(.system(size: 11))
-                .foregroundColor(Color(white: 0.4))
+                .foregroundColor(Color(white: macIconWhite))
             #if os(macOS)
             // No `step`: on the Mac a stepped slider draws a row of tick marks under the track.
             Slider(value: Binding(get: { slideMinWidth }, set: { slideMinWidth = ($0 / 10).rounded() * 10 }), in: 120...350)
@@ -23,7 +23,7 @@ struct ZoomControl: View {
             #endif
             Image(systemName: "plus.magnifyingglass")
                 .font(.system(size: 11))
-                .foregroundColor(Color(white: 0.4))
+                .foregroundColor(Color(white: macIconWhite))
             #if os(iOS)
             Text("\(Int(slideMinWidth))")
                 .font(.system(size: 10, weight: .medium, design: .monospaced))
@@ -33,6 +33,20 @@ struct ZoomControl: View {
                 .animation(.snappy(duration: 0.15), value: slideMinWidth)
             #endif
         }
+        #if os(macOS)
+        // The toolbar's glass capsule is rounded, so anything touching its ends is clipped.
+        .padding(.horizontal, 12)
+        .fixedSize()
+        #endif
+    }
+
+    /// The Mac toolbar sits on glass, where the iPad's dim grey disappears.
+    private var macIconWhite: Double {
+        #if os(macOS)
+        0.7
+        #else
+        0.4
+        #endif
     }
 }
 
