@@ -125,4 +125,4 @@ Notes for future work:
 - [x] 89. Mac: zoom control keeps its magnifier icons inside the toolbar's glass capsule (padding, brighter icons); the Stream Deck window is never opened or restored at launch
 - [x] 90. Follow ProPresenter by playlist *item*, not just presentation: `liveItemUUID` comes from `/v1/playlist/active`, so a presentation that appears twice in a playlist (the announcement loop) highlights only the row that is really live, and clicking the other copy in ProPresenter makes the app follow (checked about once a second)
 - [x] 91. The app stays put only when the user deliberately browsed to another item; Go to Active, Escape, or the live item arriving at the row being viewed restores the link. Previously a change of live item always pulled the view along, overriding that choice
-
+- [x] 92. Refresh buttons (toolbar and sidebar) show a still icon that is replaced by the standard spinner while refreshing, instead of a spinning icon

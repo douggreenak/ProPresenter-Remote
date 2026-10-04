@@ -257,8 +257,10 @@ private struct RefreshButton: View {
             Image(systemName: "arrow.clockwise")
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundColor(viewModel.isConnected ? Color(white: 0.5) : Color(white: 0.25))
-                .rotationEffect(.degrees(isRefreshing ? 360 : 0))
-                .animation(isRefreshing ? .linear(duration: 0.8).repeatForever(autoreverses: false) : .default, value: isRefreshing)
+                .opacity(isRefreshing ? 0 : 1)
+                .overlay {
+                    if isRefreshing { ProgressView().controlSize(.mini) }
+                }
         }
         .buttonStyle(.plain)
         .disabled(!viewModel.isConnected || isRefreshing)

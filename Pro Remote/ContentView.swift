@@ -96,8 +96,15 @@ struct ContentView: View {
                                 }
                             }
                         } label: {
+                            // A still icon that gives way to the standard spinner while working; the
+                            // hidden icon keeps the button the same size either way.
                             Image(systemName: "arrow.clockwise")
-                                .symbolEffect(.rotate, isActive: viewModel.isRefreshing || viewModel.isLoading)
+                                .opacity(viewModel.isRefreshing || viewModel.isLoading ? 0 : 1)
+                                .overlay {
+                                    if viewModel.isRefreshing || viewModel.isLoading {
+                                        ProgressView().controlSize(.small)
+                                    }
+                                }
                         }
                         .disabled(viewModel.isRefreshing || viewModel.isLoading)
                         .help("Refresh everything from ProPresenter")
