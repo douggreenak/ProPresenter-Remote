@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 private struct ShowDetailKey: EnvironmentKey {
     static let defaultValue: () -> Void = {}
@@ -19,6 +22,24 @@ struct ContentView: View {
     /// and rows that merely mutate the view model never push the detail on their own.
     @State private var preferredColumn: NavigationSplitViewColumn = .detail
     @State private var showRemote = false
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    @State private var wasInBackground = false
+    #if os(macOS)
+    @Environment(\.openWindow) private var openWindow
+    #endif
+
+    /// macOS: if the Stream Deck is already in its own window, bring that forward instead of
+    /// opening a second copy (two copies would fight over the same Companion surface).
+    private func focusPoppedOutDeck() -> Bool {
+        #if os(macOS)
+        if viewModel.streamDeckWindowOpen {
+            openWindow(id: StreamDeckWindow.id)
+            return true
+        }
+        #endif
+        return false
+    }
 
     var body: some View {
         @Bindable var vm = viewModel
@@ -66,22 +87,35 @@ struct ContentView: View {
 
                     ToolbarItem(placement: .automatic) {
                         Button {
-                            Task { await viewModel.refreshAll() }
+                            // Offline, the refresh button is also the way to try connecting again.
+                            Task {
+                                if viewModel.isConnected {
+                                    await viewModel.refreshAll()
+                                } else {
+                                    await viewModel.connect()
+                                }
+                            }
                         } label: {
                             Image(systemName: "arrow.clockwise")
+                                .symbolEffect(.rotate, isActive: viewModel.isRefreshing || viewModel.isLoading)
                         }
-                        .help("Refresh")
+                        .disabled(viewModel.isRefreshing || viewModel.isLoading)
+                        .help("Refresh everything from ProPresenter")
                         .accessibilityLabel("Refresh")
                     }
 
-                    ToolbarItem(placement: .automatic) {
-                        Button {
-                            viewModel.showSettings = true
-                        } label: {
-                            Image(systemName: "gear")
+                    // On a phone the connection badge already opens Settings, and this slot is what
+                    // keeps Macros and Remote out of the "..." overflow menu.
+                    if sizeClass != .compact {
+                        ToolbarItem(placement: .automatic) {
+                            Button {
+                                viewModel.showSettings = true
+                            } label: {
+                                Image(systemName: "gear")
+                            }
+                            .help("Settings")
+                            .accessibilityLabel("Settings")
                         }
-                        .help("Settings")
-                        .accessibilityLabel("Settings")
                     }
 
                     #if os(macOS)
@@ -92,7 +126,7 @@ struct ContentView: View {
                         Button {
                             // Without a Companion address there is nothing to show; go and set one.
                             if viewModel.companionConfigured {
-                                viewModel.openStreamDeck()
+                                if !focusPoppedOutDeck() { viewModel.openStreamDeck() }
                             } else {
                                 viewModel.showSettings = true
                             }
@@ -177,7 +211,7 @@ struct ContentView: View {
             // A Stream Deck requested from Settings opens only once Settings is fully gone.
             if viewModel.pendingStreamDeck {
                 viewModel.pendingStreamDeck = false
-                viewModel.showStreamDeck = true
+                if !focusPoppedOutDeck() { viewModel.showStreamDeck = true }
             }
         }) {
             NavigationStack {
@@ -192,7 +226,26 @@ struct ContentView: View {
             .frame(minWidth: 450, minHeight: 350)
             #endif
         }
+        .onChange(of: scenePhase) { _, phase in
+            // Coming back from the home screen: ProPresenter has moved on and the websocket may
+            // have died while iOS had the app suspended, so catch up before anything is tappable.
+            if phase == .background {
+                wasInBackground = true
+            } else if phase == .active, wasInBackground {
+                wasInBackground = false
+                viewModel.lockInput(for: 1)
+                Task { await viewModel.resume() }
+            }
+        }
+        #if os(macOS)
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            // The click that brings the window forward must not also land on a slide.
+            viewModel.lockInput(for: 0.6)
+        }
+        #endif
         .task {
+            // Opening the app is a full refresh (connect() reloads everything) and the controls
+            // stay locked until it has finished.
             if !viewModel.host.isEmpty && !viewModel.isConnected {
                 await viewModel.connect()
             }

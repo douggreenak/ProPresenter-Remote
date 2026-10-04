@@ -112,3 +112,13 @@ Notes for future work:
 - [x] 79. Mac sidebar: playlist Menu on top + one native sidebar List (replaces the two stacked scroll boxes); orange tint scoped to the list and slider (a root-level tint turned every glass button orange)
 - [x] 80. Mac transport bar: native glass buttons (Next is the orange glassProminent) on a material bar
 - iPad/iPhone layouts are unchanged by this batch (all Mac-only changes are behind #if os(macOS))
+
+### Batch 13 - Deck Layout, Refresh & Safe Resume (DONE)
+- [x] 81. Stream Deck no longer grows out of a corner on open (layout size changes are not animated)
+- [x] 82. iPhone Stream Deck: slimmer chassis and, when held upright, the deck is turned on its side (4 columns x 8 rows, each Companion row becomes a column) so keys are about twice as large; iPad and landscape are unchanged
+- [x] 83. Mac: "Pop Out" button on the Stream Deck sheet opens it in its own window (`Window` scene id `stream-deck`); the toolbar button brings an existing pop-out forward instead of opening a second copy (two copies would share one Companion surface)
+- [x] 84. Toolbar Refresh does a full reload (playlists, items, live + viewed presentation) and also clears the thumbnail cache and refetches every slide picture ignoring the HTTP cache; spins while working, acts as Connect when offline
+- [x] 85. Returning from the background (`scenePhase`) reconnects the websocket, refreshes everything and goes to the live slide; opening the app already refreshes via `connect()`
+- [x] 86. Input lock: slide triggers (taps, keys, Remote, menu commands) are ignored while resyncing (max 8 s) and for 0.7 s after, and for 0.6 s after the Mac app becomes active, so the tap that opens the app can't fire a slide. Companion deck keys are not affected
+- [x] 87. Remote view asks ProPresenter for 1600 px thumbnails (`?quality=`, default is 400 px, max 1920) and shows the small cached one while the large one loads
+- [x] 88. iPhone toolbar: the gear is hidden on compact width (the connection badge opens Settings) so Stream Deck, Macros and Remote no longer fall into the "..." overflow menu

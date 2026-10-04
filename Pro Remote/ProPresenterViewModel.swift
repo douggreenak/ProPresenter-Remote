@@ -28,6 +28,17 @@ final class ProPresenterViewModel {
     var isLoading: Bool = false
     var connectionHealthy: Bool = false
     private var pollFailureCount: Int = 0
+    /// Bumped after every full refresh so thumbnails already on screen are fetched again.
+    var contentGeneration: Int = 0
+    var isRefreshing: Bool = false
+    /// While the app is catching up with ProPresenter (just opened, or just returned from the home
+    /// screen) its idea of the live slide is stale, and a tap or key press could fire the wrong
+    /// slide. `resyncing` covers the catch-up; `grace` covers the moment right after it, which is
+    /// when the tap that brought the window forward is still arriving.
+    private var resyncing = false
+    private var grace = false
+    private var inputTask: Task<Void, Never>?
+    var inputLocked: Bool { resyncing || grace }
     private var lastUserTrigger: ContinuousClock.Instant?
     var connectionError: String?
     var showSettings: Bool = false
@@ -52,6 +63,8 @@ final class ProPresenterViewModel {
         didSet { UserDefaults.standard.set(companionShowNumbers, forKey: "co_numbers") }
     }
     var showStreamDeck: Bool = false
+    /// macOS: the deck has been popped out into its own window.
+    var streamDeckWindowOpen = false
 
     // MARK: Macros
     var macros: [Macro] = []
@@ -109,13 +122,13 @@ final class ProPresenterViewModel {
     }
 
     var canTriggerNext: Bool {
-        guard let pres = selectedPresentation else { return false }
+        guard !inputLocked, let pres = selectedPresentation else { return false }
         let currentIndex = isViewingLivePresentation ? liveSlideIndex : -1
         return pres.slides.contains { $0.index > currentIndex && $0.enabled && (pres.previewOnly ? isPlayable($0) : $0.isTriggerable) }
     }
 
     var canTriggerPrevious: Bool {
-        guard let pres = selectedPresentation else { return false }
+        guard !inputLocked, let pres = selectedPresentation else { return false }
         let currentIndex = isViewingLivePresentation ? liveSlideIndex : pres.slides.count
         return pres.slides.contains { $0.index < currentIndex && $0.enabled && (pres.previewOnly ? isPlayable($0) : $0.isTriggerable) }
     }
@@ -159,7 +172,8 @@ final class ProPresenterViewModel {
         guard !isLoading else { return }
         connectionError = nil
         isLoading = true
-        defer { isLoading = false }
+        beginResync()
+        defer { isLoading = false; endResync() }
         do {
             let ok = try await api.testConnection(host: host, port: portInt)
             guard ok else {
@@ -176,6 +190,55 @@ final class ProPresenterViewModel {
             connectionError = error.localizedDescription
             isConnected = false
         }
+    }
+
+    // MARK: - Input lock
+
+    /// Holds slide triggers off until the next `endResync()`, or at most 8 seconds if ProPresenter
+    /// never answers.
+    private func beginResync() {
+        resyncing = true
+        grace = false
+        inputTask?.cancel()
+        inputTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(8))
+            guard !Task.isCancelled else { return }
+            self?.resyncing = false
+        }
+    }
+
+    private func endResync() {
+        resyncing = false
+        lockInput(for: 0.7)
+    }
+
+    /// Ignores slide triggers for a moment. Used when the window has just come forward, so the
+    /// tap or click that activated it can't land on a slide.
+    func lockInput(for seconds: Double) {
+        grace = true
+        inputTask?.cancel()
+        inputTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(seconds))
+            guard !Task.isCancelled else { return }
+            self?.grace = false
+        }
+    }
+
+    /// The app is back in front after being in the background: ProPresenter has moved on, the
+    /// websocket may be dead, and the grid is showing whatever was open when it left. Re-read
+    /// everything and snap back to the live slide. Never triggers anything.
+    func resume() async {
+        guard !host.isEmpty else { return }
+        guard isConnected else {
+            await connect()
+            return
+        }
+        beginResync()
+        defer { endResync() }
+        userOverrodeSelection = false
+        webSocket.connect(host: host, port: portInt)
+        await refreshAll()
+        await goToLive()
     }
 
     func disconnect() {
@@ -258,7 +321,11 @@ final class ProPresenterViewModel {
     /// whatever non-live presentation is currently being viewed. Clears the presentation
     /// cache first so nothing already open is skipped as "up to date".
     func refreshAll() async {
+        guard !isRefreshing else { return }
+        isRefreshing = true
+        defer { isRefreshing = false }
         presentationCache.removeAll()
+        ThumbnailImage.clearCache()
         await fetchPlaylists()
 
         if let selected = selectedPlaylist,
@@ -280,6 +347,7 @@ final class ProPresenterViewModel {
         }
 
         await fetchSlideStatus()
+        contentGeneration += 1
     }
 
     func fetchPlaylists() async {
@@ -551,7 +619,7 @@ final class ProPresenterViewModel {
     // MARK: - Actions (only called by explicit user interaction)
 
     func triggerSlide(at index: Int) async {
-        guard let pres = selectedPresentation,
+        guard !inputLocked, let pres = selectedPresentation,
               let slide = pres.slides[safe: index] else { return }
 
         // Two different calls depending on whether this presentation is already the one live:
@@ -622,17 +690,17 @@ final class ProPresenterViewModel {
         await selectPresentation(playlistItems[idx - 1])
     }
 
-    func thumbnailURL(for slide: Slide?) -> URL? {
+    func thumbnailURL(for slide: Slide?, quality: Int? = nil) -> URL? {
         guard let slide, let pres = selectedPresentation else { return nil }
         // Prefer the arrangement-scoped playlist endpoint: it respects the playlist's pinned
         // arrangement (including repeated slides), unlike the presentation-scoped fallback
         // below, which only respects the presentation's library arrangement selection.
         if let playlistUUID = pres.playlistUUID, let itemIndex = pres.playlistItemIndex,
            let cueIndex = slide.thumbnailIndex {
-            return api.thumbnailURL(host: host, port: portInt, playlistUUID: playlistUUID, itemIndex: itemIndex, cueIndex: cueIndex)
+            return api.thumbnailURL(host: host, port: portInt, playlistUUID: playlistUUID, itemIndex: itemIndex, cueIndex: cueIndex, quality: quality)
         }
         guard let index = slide.triggerIndex ?? slide.thumbnailIndex else { return nil }
-        return api.thumbnailURL(host: host, port: portInt, uuid: pres.uuid, index: index)
+        return api.thumbnailURL(host: host, port: portInt, uuid: pres.uuid, index: index, quality: quality)
     }
 
     /// Loads the macro list (read-only).

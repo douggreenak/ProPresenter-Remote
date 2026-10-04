@@ -51,6 +51,15 @@ struct Pro_RemoteApp: App {
         #endif
 
         #if os(macOS)
+        // One window, so asking for it again brings the existing one forward.
+        Window("Stream Deck", id: StreamDeckWindow.id) {
+            StreamDeckView(inWindow: true)
+                .environment(viewModel)
+                .preferredColorScheme(.dark)
+                .frame(minWidth: 480, minHeight: 300)
+        }
+        .defaultSize(width: 860, height: 520)
+
         Settings {
             SettingsView()
                 .environment(viewModel)

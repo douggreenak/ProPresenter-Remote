@@ -84,8 +84,8 @@ struct RemoteView: View {
     private func slideCard(_ slide: Slide) -> some View {
         VStack(spacing: 0) {
             Group {
-                if let url = viewModel.thumbnailURL(for: slide) {
-                    ThumbnailImage(url: url)
+                if let url = viewModel.thumbnailURL(for: slide, quality: 1600) {
+                    ThumbnailImage(url: url, placeholder: viewModel.thumbnailURL(for: slide))
                 } else {
                     Rectangle()
                         .fill(LinearGradient(colors: [Color(white: 0.08), Color(white: 0.04)], startPoint: .top, endPoint: .bottom))

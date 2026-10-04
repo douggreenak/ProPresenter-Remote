@@ -6,9 +6,21 @@ import AppKit
 // MARK: - Cached Thumbnail Image
 
 struct ThumbnailImage: View {
+    @Environment(ProPresenterViewModel.self) private var viewModel
     let url: URL?
+    /// A smaller picture of the same slide to show while `url` (a larger one) is on its way.
+    var placeholder: URL? = nil
 
     @State private var image: Image?
+    @State private var loadedURL: URL?
+
+    /// A full refresh forgets every picture so edits made in ProPresenter show up.
+    static func clearCache() { cache.removeAllObjects() }
+
+    private struct LoadKey: Equatable {
+        let url: URL?
+        let generation: Int
+    }
 
     private static let cache: NSCache<NSURL, AnyObject> = {
         let c = NSCache<NSURL, AnyObject>()
@@ -28,22 +40,29 @@ struct ThumbnailImage: View {
                     .aspectRatio(16 / 9, contentMode: .fit)
             }
         }
-        .task(id: url) {
+        .task(id: LoadKey(url: url, generation: viewModel.contentGeneration)) {
             // Cells are reused across presentations (identity is the slide index), so the
             // previous presentation's thumbnail is still in `image` here. Drop it before
-            // fetching, or a slow or failed load leaves the wrong slide on screen.
+            // fetching, or a slow or failed load leaves the wrong slide on screen. (A refresh of
+            // the same slide keeps the old picture up until the new one arrives.)
             if let cached = url.flatMap(Self.platformImage(for:)) {
                 image = cached
+                loadedURL = url
                 return
             }
-            image = nil
-            guard let url else { return }
+            if loadedURL != url {
+                image = placeholder.flatMap(Self.platformImage(for:))
+            }
+            guard let url else { loadedURL = nil; return }
             // ProPresenter answers 404 with an empty body, and URLSession doesn't throw on
             // 404 — without the status check that decodes to nil and silently keeps nothing.
-            guard let (data, response) = try? await URLSession.shared.data(from: url),
+            // Skip the HTTP cache too: a refresh must show what ProPresenter has now.
+            let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
+            guard let (data, response) = try? await URLSession.shared.data(for: request),
                   (response as? HTTPURLResponse)?.statusCode == 200 else { return }
             if let decoded = Self.decode(data: data, url: url) {
                 image = decoded
+                loadedURL = url
             }
         }
     }

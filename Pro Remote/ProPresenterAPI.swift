@@ -176,8 +176,8 @@ actor ProPresenterAPI {
     /// position because of the *playlist's* arrangement. Kept only as a fallback for when a
     /// presentation has no known playlist context at all (see `thumbnailURL(playlistUUID:...)`
     /// below, which should be preferred whenever that context is available).
-    nonisolated func thumbnailURL(host: String, port: Int, uuid: String, index: Int) -> URL? {
-        URL(string: "http://\(host):\(port)/v1/presentation/\(uuid)/thumbnail/\(index)")
+    nonisolated func thumbnailURL(host: String, port: Int, uuid: String, index: Int, quality: Int? = nil) -> URL? {
+        URL(string: "http://\(host):\(port)/v1/presentation/\(uuid)/thumbnail/\(index)\(Self.qualityQuery(quality))")
     }
 
     /// The playlist-scoped thumbnail endpoint (`/v1/playlist/{playlist}/{item}/thumbnail/{cueIndex}`).
@@ -188,8 +188,14 @@ actor ProPresenterAPI {
     /// arrangement, something the presentation-scoped endpoint 404s on entirely. `itemIndex` is
     /// the item's position within the playlist (`Presentation.playlistItemIndex`), `cueIndex`
     /// is `Slide.thumbnailIndex`.
-    nonisolated func thumbnailURL(host: String, port: Int, playlistUUID: String, itemIndex: Int, cueIndex: Int) -> URL? {
-        URL(string: "http://\(host):\(port)/v1/playlist/\(playlistUUID)/\(itemIndex)/thumbnail/\(cueIndex)")
+    nonisolated func thumbnailURL(host: String, port: Int, playlistUUID: String, itemIndex: Int, cueIndex: Int, quality: Int? = nil) -> URL? {
+        URL(string: "http://\(host):\(port)/v1/playlist/\(playlistUUID)/\(itemIndex)/thumbnail/\(cueIndex)\(Self.qualityQuery(quality))")
+    }
+
+    /// ProPresenter's thumbnails are 400 px wide unless asked otherwise (`?quality=` is the width in
+    /// pixels, up to 1920). The grid's small cells use the default; full-screen views ask for more.
+    private nonisolated static func qualityQuery(_ quality: Int?) -> String {
+        quality.map { "?quality=\($0)" } ?? ""
     }
 
     /// Directly verifies ProPresenter actually has a real thumbnail for every cue a resolved

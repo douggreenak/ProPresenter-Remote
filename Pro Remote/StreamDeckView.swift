@@ -9,10 +9,16 @@ import UIKit
 /// the hardware exactly); everything around it - the chassis, key wells, glass caps, press feel,
 /// page and connection state - is ordinary SwiftUI.
 struct StreamDeckView: View {
+    /// True when shown in its own macOS window rather than as a sheet over the main window.
+    var inWindow = false
+
     @Environment(ProPresenterViewModel.self) private var viewModel
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.scenePhase) private var scenePhase
+    #if os(macOS)
+    @Environment(\.openWindow) private var openWindow
+    #endif
     @State private var deck = CompanionDeck()
 
     /// Sharper pictures where keys are big (iPad, Mac); smaller on phones to save bandwidth.
@@ -24,7 +30,7 @@ struct StreamDeckView: View {
                 DeskBackground()
 
                 if viewModel.companionConfigured {
-                    DeckBody(deck: deck, showNumbers: viewModel.companionShowNumbers)
+                    DeckBody(deck: deck, showNumbers: viewModel.companionShowNumbers, isPhone: sizeClass == .compact)
                         .opacity(deck.state == .connected ? 1 : 0.4)
                         .saturation(deck.state == .connected ? 1 : 0.3)
                         .allowsHitTesting(deck.state == .connected)
@@ -44,13 +50,39 @@ struct StreamDeckView: View {
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
+                if !inWindow {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Done") { dismiss() }
+                    }
                 }
+                #if os(macOS)
+                if !inWindow {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            // Close the sheet first: only one copy may hold the Companion surface.
+                            dismiss()
+                            openWindow(id: StreamDeckWindow.id)
+                        } label: {
+                            Label("Pop Out", systemImage: "arrow.up.forward.app")
+                        }
+                        .help("Open the Stream Deck in its own window")
+                    }
+                }
+                #endif
             }
         }
         .task { connect() }
-        .onDisappear { deck.stop() }
+        .onAppear {
+            #if os(macOS)
+            if inWindow { viewModel.streamDeckWindowOpen = true }
+            #endif
+        }
+        .onDisappear {
+            deck.stop()
+            #if os(macOS)
+            if inWindow { viewModel.streamDeckWindowOpen = false }
+            #endif
+        }
         .onChange(of: scenePhase) { _, phase in
             // iOS suspends sockets in the background; reconnect cleanly on the way back.
             if phase == .active { connect() } else if phase == .background { deck.stop() }
@@ -107,40 +139,61 @@ private struct DeskBackground: View {
 /// Everything is derived from the key size, so the deck keeps its proportions at any screen size.
 private struct DeckMetrics {
     let key: CGFloat
-    var gap: CGFloat { key * 0.11 }
-    var edge: CGFloat { key * 0.30 }
-    var footer: CGFloat { key * 0.34 }
-    var bodyCorner: CGFloat { key * 0.22 }
+    /// On a phone the chassis shrinks to a sliver so the keys get the room.
+    var tight = false
+    /// Turned on its side (4 across, 8 down): a phone held upright has far more height than width.
+    var turned = false
 
-    var gridWidth: CGFloat { key * CGFloat(CompanionDeck.columns) + gap * CGFloat(CompanionDeck.columns - 1) }
-    var gridHeight: CGFloat { key * CGFloat(CompanionDeck.rows) + gap * CGFloat(CompanionDeck.rows - 1) }
+    var columns: Int { turned ? CompanionDeck.rows : CompanionDeck.columns }
+    var rows: Int { turned ? CompanionDeck.columns : CompanionDeck.rows }
+
+    var gap: CGFloat { key * 0.11 }
+    var edge: CGFloat { key * (tight ? 0.14 : 0.30) }
+    var footer: CGFloat { key * (tight ? 0.30 : 0.34) }
+    var bodyCorner: CGFloat { key * (tight ? 0.18 : 0.22) }
+
+    var gridWidth: CGFloat { key * CGFloat(columns) + gap * CGFloat(columns - 1) }
+    var gridHeight: CGFloat { key * CGFloat(rows) + gap * CGFloat(rows - 1) }
     var width: CGFloat { gridWidth + edge * 2 }
     var height: CGFloat { gridHeight + edge + footer }
 
-    /// The largest key that lets the whole deck fit inside `size` with some breathing room.
-    static func fitting(_ size: CGSize) -> DeckMetrics {
-        let unit = DeckMetrics(key: 1)
-        let margin: CGFloat = 24
-        let byWidth = (size.width - margin * 2) / unit.width
-        let byHeight = (size.height - margin * 2) / unit.height
-        return DeckMetrics(key: max(8, floor(min(byWidth, byHeight))))
+    /// Which Companion key sits at this row and column of the drawn grid.
+    func keyIndex(row: Int, column: Int) -> Int {
+        turned ? column * CompanionDeck.columns + row : row * CompanionDeck.columns + column
+    }
+
+    /// The largest key that lets the whole deck fit inside `size`. With `canTurn`, the deck is
+    /// laid on its side when that gives bigger keys (a phone held upright).
+    static func fitting(_ size: CGSize, tight: Bool, canTurn: Bool) -> DeckMetrics {
+        let margin: CGFloat = tight ? 6 : 24
+        func best(turned: Bool) -> DeckMetrics {
+            let unit = DeckMetrics(key: 1, tight: tight, turned: turned)
+            let byWidth = (size.width - margin * 2) / unit.width
+            let byHeight = (size.height - margin * 2) / unit.height
+            return DeckMetrics(key: max(8, floor(min(byWidth, byHeight))), tight: tight, turned: turned)
+        }
+        let upright = best(turned: false)
+        guard canTurn else { return upright }
+        let turned = best(turned: true)
+        return turned.key > upright.key ? turned : upright
     }
 }
 
 private struct DeckBody: View {
     let deck: CompanionDeck
     let showNumbers: Bool
+    let isPhone: Bool
 
     var body: some View {
         GeometryReader { geometry in
-            let m = DeckMetrics.fitting(geometry.size)
+            let m = DeckMetrics.fitting(geometry.size, tight: isPhone, canTurn: isPhone)
 
             VStack(spacing: 0) {
                 VStack(spacing: m.gap) {
-                    ForEach(0..<CompanionDeck.rows, id: \.self) { row in
+                    ForEach(0..<m.rows, id: \.self) { row in
                         HStack(spacing: m.gap) {
-                            ForEach(0..<CompanionDeck.columns, id: \.self) { column in
-                                let index = row * CompanionDeck.columns + column
+                            ForEach(0..<m.columns, id: \.self) { column in
+                                let index = m.keyIndex(row: row, column: column)
                                 DeckKey(
                                     image: deck.images[index],
                                     edges: deck.edges[index],
@@ -170,7 +223,17 @@ private struct DeckBody: View {
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        // The first layout pass can see a different size than the final one; animating between
+        // them made the deck grow out of a corner as the screen came up.
+        .transaction { $0.animation = nil }
     }
+}
+
+// MARK: - Window
+
+/// The Stream Deck in a window of its own (macOS), so it can sit beside the slides.
+enum StreamDeckWindow {
+    static let id = "stream-deck"
 }
 
 // MARK: - Status
