@@ -395,7 +395,7 @@ struct SlideGridView: View {
                         .accessibilityLabel("Slide \(viewModel.liveSlideIndex + 1) of \(total)")
                 }
 
-                transportButton("Next", icon: "chevron.right", iconLeading: false, prominent: true, compact: compact, disabled: !viewModel.canTriggerNext) {
+                transportButton("Next", icon: "chevron.right", iconLeading: false, prominent: true, compact: compact, disabled: !viewModel.canAdvance) {
                     Task { await viewModel.triggerNext() }
                 }
 

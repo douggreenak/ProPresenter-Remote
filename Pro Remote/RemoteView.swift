@@ -161,7 +161,7 @@ struct RemoteView: View {
     }
 
     private func nextSlideButton(_ h: CGFloat) -> some View {
-        pillButton(height: h, disabled: !viewModel.canTriggerNext, prominent: true) {
+        pillButton(height: h, disabled: !viewModel.canAdvance, prominent: true) {
             Task { await viewModel.triggerNext() }
         } label: {
             Label("Next Slide", systemImage: "play.fill")

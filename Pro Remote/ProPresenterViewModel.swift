@@ -113,7 +113,10 @@ final class ProPresenterViewModel {
     /// same playlist item).
     func isLive(_ presentation: Presentation) -> Bool {
         guard !livePresentationUUID.isEmpty, presentation.uuid == livePresentationUUID else { return false }
-        guard !liveItemUUID.isEmpty, let item = presentation.itemUUID else { return true }
+        // The item only matters to tell apart rows that hold the same presentation. Otherwise an
+        // item id that disagrees for any reason must not make the live slide lose its highlight.
+        guard !liveItemUUID.isEmpty, let item = presentation.itemUUID,
+              playlistItems.filter({ $0.uuid == presentation.uuid }).count > 1 else { return true }
         return item == liveItemUUID
     }
 
@@ -149,6 +152,12 @@ final class ProPresenterViewModel {
         guard !inputLocked, let pres = selectedPresentation else { return false }
         let currentIndex = isViewingLivePresentation ? liveSlideIndex : pres.slides.count
         return pres.slides.contains { $0.index < currentIndex && $0.enabled && (pres.previewOnly ? isPlayable($0) : $0.isTriggerable) }
+    }
+
+    /// Whether Next does anything: there is a slide to play, or the live item has ended and there is
+    /// an item after it to move on to.
+    var canAdvance: Bool {
+        canTriggerNext || (!inputLocked && isViewingLivePresentation && canSelectNextPresentation)
     }
 
     var canSelectNextPresentation: Bool {
@@ -531,6 +540,7 @@ final class ProPresenterViewModel {
 
         let previousUUID = livePresentationUUID
         let triggerIdx = status.slideIndex
+        rejoinLiveIfViewingIt()
 
         let recentTrigger = lastUserTrigger.map { ContinuousClock.now - $0 < .milliseconds(1500) } ?? false
         if !recentTrigger {
@@ -553,6 +563,13 @@ final class ProPresenterViewModel {
                 await fetchActivePresentation()
             }
         }
+    }
+
+    /// Being on the live item *is* following it. Without this, an item opened ahead of time and then
+    /// started (from here or from ProPresenter) kept its "browsing" flag, so when ProPresenter moved
+    /// on afterwards the view stayed behind with no live slide to outline.
+    private func rejoinLiveIfViewingIt() {
+        if userOverrodeSelection, isViewingLivePresentation { userOverrodeSelection = false }
     }
 
     /// Asks ProPresenter which playlist item is live, at most about once a second, and reports whether
@@ -663,6 +680,8 @@ final class ProPresenterViewModel {
 
         liveSlideIndex = index
         livePresentationUUID = pres.uuid
+        liveItemUUID = pres.itemUUID ?? ""
+        rejoinLiveIfViewingIt()
         lastUserTrigger = .now
         #if os(iOS)
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -678,7 +697,12 @@ final class ProPresenterViewModel {
     func triggerNext() async {
         guard let pres = selectedPresentation else { return }
         let currentIndex = isViewingLivePresentation ? liveSlideIndex : -1
-        guard let next = pres.slides.first(where: { $0.index > currentIndex && $0.enabled && isPlayable($0) }) else { return }
+        guard let next = pres.slides.first(where: { $0.index > currentIndex && $0.enabled && isPlayable($0) }) else {
+            // Past the last slide of the live item: Next brings up the next item in the playlist
+            // without playing it, and the following Next plays that item's first slide.
+            if isViewingLivePresentation, !inputLocked { await selectNextPresentation() }
+            return
+        }
         await triggerSlide(at: next.index)
     }
 

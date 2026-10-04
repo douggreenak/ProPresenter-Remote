@@ -126,3 +126,6 @@ Notes for future work:
 - [x] 90. Follow ProPresenter by playlist *item*, not just presentation: `liveItemUUID` comes from `/v1/playlist/active`, so a presentation that appears twice in a playlist (the announcement loop) highlights only the row that is really live, and clicking the other copy in ProPresenter makes the app follow (checked about once a second)
 - [x] 91. The app stays put only when the user deliberately browsed to another item; Go to Active, Escape, or the live item arriving at the row being viewed restores the link. Previously a change of live item always pulled the view along, overriding that choice
 - [x] 92. Refresh buttons (toolbar and sidebar) show a still icon that is replaced by the standard spinner while refreshing, instead of a spinning icon
+- [x] 93. Next at the last slide of the live item moves the view to the next playlist item without playing it; the following Next plays that item's first slide (`canAdvance` keeps the button enabled for this; keyboard and menu Next behave the same)
+- [x] 94. Being on the live item counts as following it (`rejoinLiveIfViewingIt`): an item opened ahead and then started no longer keeps its "browsing" flag, which left the view behind with no live outline once ProPresenter moved on. `isLive` only uses the playlist item id to separate duplicate rows of one presentation
+
