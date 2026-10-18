@@ -3,12 +3,22 @@ import SwiftUI
 
 actor ProPresenterAPI {
     private let session: URLSession
+    /// Slide triggers get a session of their own so they never wait behind polling or image loads
+    /// for a free connection.
+    private let triggerSession: URLSession
 
     init() {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 10
         config.timeoutIntervalForResource = 30
         self.session = URLSession(configuration: config)
+
+        let triggers = URLSessionConfiguration.ephemeral
+        triggers.timeoutIntervalForRequest = 5
+        triggers.timeoutIntervalForResource = 10
+        triggers.waitsForConnectivity = false
+        triggers.httpMaximumConnectionsPerHost = 4
+        self.triggerSession = URLSession(configuration: triggers)
     }
 
     private func base(_ host: String, _ port: Int) -> String {
@@ -67,7 +77,23 @@ actor ProPresenterAPI {
 
     // MARK: - Fetch Presentation by UUID (read-only)
 
+    /// Reads a presentation's slides. This is how a *browsed* (not live) item is shown, and ProPresenter
+    /// has been seen to move its own selection when asked for a presentation this way, so the read is
+    /// focus-neutral: ProPresenter's focus is noted first and put back if it moved. Browsing in the app
+    /// therefore leaves ProPresenter's window exactly where its operator left it.
     func fetchPresentation(host: String, port: Int, uuid: String, arrangementUUID: String? = nil) async throws -> Presentation {
+        let before = await focusSnapshot(host: host, port: port)
+        do {
+            let result = try await readPresentation(host: host, port: port, uuid: uuid, arrangementUUID: arrangementUUID)
+            await restoreFocus(before, host: host, port: port)
+            return result
+        } catch {
+            await restoreFocus(before, host: host, port: port)
+            throw error
+        }
+    }
+
+    private func readPresentation(host: String, port: Int, uuid: String, arrangementUUID: String?) async throws -> Presentation {
         let url = try buildURL(host, port, path: "/v1/presentation/\(uuid)")
         let (data, _) = try await session.data(from: url)
         let decoder = JSONDecoder()
@@ -78,6 +104,41 @@ actor ProPresenterAPI {
         return mapPayload(payload, arrangementUUID: arrangementUUID)
     }
 
+    /// Which presentation and playlist ProPresenter's window currently has focused (not live - focus).
+    private struct FocusSnapshot {
+        var presentation: String?
+        var playlist: String?
+    }
+
+    private func focusSnapshot(host: String, port: Int) async -> FocusSnapshot {
+        var snapshot = FocusSnapshot()
+        if let url = try? buildURL(host, port, path: "/v1/presentation/focused"),
+           let (data, _) = try? await session.data(from: url),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            snapshot.presentation = json["uuid"] as? String
+        }
+        if let url = try? buildURL(host, port, path: "/v1/playlist/focused"),
+           let (data, _) = try? await session.data(from: url),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            snapshot.playlist = (json["playlist"] as? [String: Any])?["uuid"] as? String
+        }
+        return snapshot
+    }
+
+    /// Puts ProPresenter's focus back if a read moved it. Does nothing (no request at all) when it didn't.
+    private func restoreFocus(_ before: FocusSnapshot, host: String, port: Int) async {
+        guard before.presentation != nil || before.playlist != nil else { return }
+        // ProPresenter can apply a focus change a moment after it answers.
+        try? await Task.sleep(for: .milliseconds(120))
+        let after = await focusSnapshot(host: host, port: port)
+        if let playlist = before.playlist, after.playlist != playlist {
+            try? await focusPlaylist(host: host, port: port, uuid: playlist)
+        }
+        if let presentation = before.presentation, after.presentation != presentation {
+            try? await focusPresentation(host: host, port: port, uuid: presentation)
+        }
+    }
+
     // MARK: - Slide Status
 
     func fetchSlideIndex(host: String, port: Int) async throws -> (slideIndex: Int, presentationUUID: String?, totalCues: Int?) {
@@ -85,6 +146,41 @@ actor ProPresenterAPI {
         let (data, _) = try await session.data(from: url)
         let r = try JSONDecoder().decode(SlideIndexPayload.self, from: data)
         return (r.presentationIndex?.index ?? 0, r.presentationIndex?.presentationId?.uuid, r.presentationIndex?.totalCues)
+    }
+
+    // MARK: - Announcement layer
+
+    /// The announcement layer, or nil when nothing is running on it. Read-only: asks which layers
+    /// have content, then which playlist item the announcement came from.
+    func fetchAnnouncementLayer(host: String, port: Int) async throws -> AnnouncementLayer? {
+        let layersURL = try buildURL(host, port, path: "/v1/status/layers")
+        let (layerData, _) = try await session.data(from: layersURL)
+        guard let layers = try JSONSerialization.jsonObject(with: layerData) as? [String: Any],
+              layers["announcements"] as? Bool == true else { return nil }
+
+        var name: String?
+        var itemUUID: String?
+        var presentationUUID: String?
+        if let url = try? buildURL(host, port, path: "/v1/playlist/active"),
+           let (data, _) = try? await session.data(from: url),
+           let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let announcements = root["announcements"] as? [String: Any] {
+            if let item = announcements["item"] as? [String: Any] {
+                name = item["name"] as? String
+                itemUUID = item["uuid"] as? String
+            }
+            let info = (announcements["playlist_item"] as? [String: Any])?["presentation_info"] as? [String: Any]
+            presentationUUID = info?["presentation_uuid"] as? String
+        }
+        if name == nil || presentationUUID == nil,
+           let url = try? buildURL(host, port, path: "/v1/announcement/slide_index"),
+           let (data, _) = try? await session.data(from: url),
+           let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let id = (root["announcement_index"] as? [String: Any])?["presentation_id"] as? [String: Any] {
+            name = name ?? id["name"] as? String
+            presentationUUID = presentationUUID ?? id["uuid"] as? String
+        }
+        return AnnouncementLayer(name: name ?? "Announcements", itemUUID: itemUUID, presentationUUID: presentationUUID)
     }
 
     // MARK: - Macros
@@ -114,12 +210,12 @@ actor ProPresenterAPI {
 
     func triggerNext(host: String, port: Int) async throws {
         let url = try buildURL(host, port, path: "/v1/trigger/next")
-        _ = try await session.data(from: url)
+        _ = try await triggerSession.data(from: url)
     }
 
     func triggerPrevious(host: String, port: Int) async throws {
         let url = try buildURL(host, port, path: "/v1/trigger/previous")
-        _ = try await session.data(from: url)
+        _ = try await triggerSession.data(from: url)
     }
 
     /// Used only to activate a presentation that ISN'T currently live (e.g. jumping ahead to
@@ -136,7 +232,7 @@ actor ProPresenterAPI {
         // Per the ProPresenter OpenAPI spec (openapi.propresenter.com), the real path is
         // `/v1/presentation/{uuid}/{index}/trigger` - index before `trigger`, not after.
         let url = try buildURL(host, port, path: "/v1/presentation/\(uuid)/\(index)/trigger")
-        _ = try await session.data(from: url)
+        _ = try await triggerSession.data(from: url)
     }
 
     /// The routine path for controlling whatever's already live. Unlike the uuid-scoped
@@ -159,11 +255,21 @@ actor ProPresenterAPI {
     /// the operator had just deliberately moved off of.
     func triggerActiveCue(host: String, port: Int, index: Int) async throws {
         let url = try buildURL(host, port, path: "/v1/presentation/active/\(index)/trigger")
+        _ = try await triggerSession.data(from: url)
+    }
+
+    /// Moves ProPresenter's own window to this presentation (`/v1/presentation/{uuid}/focus`, 204 on
+    /// success). Only changes what the operator sees selected in ProPresenter; it never triggers
+    /// anything. (This used to be a plain GET of `/v1/presentation/{uuid}`, which reads the document
+    /// and does not move focus at all.)
+    func focusPresentation(host: String, port: Int, uuid: String) async throws {
+        let url = try buildURL(host, port, path: "/v1/presentation/\(uuid)/focus")
         _ = try await session.data(from: url)
     }
 
-    func focusPresentation(host: String, port: Int, uuid: String) async throws {
-        let url = try buildURL(host, port, path: "/v1/presentation/\(uuid)")
+    /// Opens this playlist in ProPresenter's window (`/v1/playlist/{id}/focus`). Focus only.
+    func focusPlaylist(host: String, port: Int, uuid: String) async throws {
+        let url = try buildURL(host, port, path: "/v1/playlist/\(uuid)/focus")
         _ = try await session.data(from: url)
     }
 

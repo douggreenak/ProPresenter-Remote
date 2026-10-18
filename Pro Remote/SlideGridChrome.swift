@@ -50,8 +50,8 @@ struct ZoomControl: View {
     }
 }
 
-/// The small status capsules for the presentation being viewed: Go to Active, Preview, Arrangement
-/// Mismatch, and LIVE.
+/// The small status capsules for the presentation being viewed: Go to Active, Preview, LIVE, and the
+/// announcement-layer indicator.
 struct PresentationStatusBadges: View {
     @Environment(ProPresenterViewModel.self) private var viewModel
     let presentation: Presentation
@@ -90,22 +90,6 @@ struct PresentationStatusBadges: View {
                     .accessibilityHint("ProPresenter won't share this item's slide details. Start it in ProPresenter to control it from here.")
             }
 
-            if viewModel.isViewingLivePresentation && viewModel.liveArrangementMismatch {
-                HStack(spacing: 4) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 8))
-                    Text("Arrangement Mismatch")
-                        .font(.system(size: 9, weight: .heavy))
-                }
-                .foregroundStyle(.black)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(Color.yellow, in: Capsule())
-                .help("ProPresenter's library arrangement for this song doesn't match the one Sunday Service has selected, so the app is showing the raw slide order instead. Re-select the correct arrangement in ProPresenter to fix this.")
-                .accessibilityLabel("Arrangement mismatch")
-                .accessibilityHint("ProPresenter's library arrangement doesn't match the one Sunday Service selected. Showing the raw slide order instead. Re-select the correct arrangement in ProPresenter to fix this.")
-            }
-
             if viewModel.isViewingLivePresentation {
                 PhaseAnimator([false, true]) { isGlowing in
                     Text("LIVE")
@@ -119,8 +103,49 @@ struct PresentationStatusBadges: View {
                     .easeInOut(duration: 1.5)
                 }
             }
+
+            AnnouncementLayerIndicator()
         }
         .animation(.easeInOut(duration: 0.3), value: viewModel.isViewingLivePresentation)
-        .animation(.easeInOut(duration: 0.3), value: viewModel.liveArrangementMismatch)
+        .animation(.easeInOut(duration: 0.3), value: viewModel.announcementLayer)
+    }
+}
+
+/// A small TV mark: this item is running on the announcement layer (the loop sent to the outside TVs),
+/// separate from what is live on the main layer.
+struct AnnouncementBadge: View {
+    var body: some View {
+        Image(systemName: "tv")
+            .font(.system(size: 9, weight: .bold))
+            .foregroundStyle(Color(red: 0.45, green: 0.75, blue: 1.0))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(Color(red: 0.2, green: 0.45, blue: 0.8).opacity(0.28), in: Capsule())
+            .help("Running on the announcement layer")
+            .accessibilityLabel("Running on the announcement layer")
+    }
+}
+
+/// Shown in the header or toolbar whenever something is running on the announcement layer.
+struct AnnouncementLayerIndicator: View {
+    @Environment(ProPresenterViewModel.self) private var viewModel
+
+    var body: some View {
+        if let layer = viewModel.announcementLayer {
+            HStack(spacing: 4) {
+                Image(systemName: "tv")
+                    .font(.system(size: 9, weight: .bold))
+                Text("Announcements")
+                    .font(.system(size: 9, weight: .heavy))
+            }
+            .foregroundStyle(Color(red: 0.45, green: 0.75, blue: 1.0))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(Color(red: 0.2, green: 0.45, blue: 0.8).opacity(0.28), in: Capsule())
+            .help("\(layer.name) is running on the announcement layer")
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(layer.name) is running on the announcement layer")
+            .transition(.opacity)
+        }
     }
 }

@@ -340,13 +340,9 @@ private struct PresentationRow: View {
 
                 Spacer(minLength: 4)
 
-                if isLive && viewModel.liveArrangementMismatch {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.yellow)
-                        .help("Arrangement mismatch - ProPresenter's library arrangement doesn't match Sunday Service's selection for this song.")
-                        .accessibilityLabel("Arrangement mismatch")
-                        .padding(.trailing, isLive ? 4 : 0)
+                if viewModel.isOnAnnouncementLayer(item) {
+                    AnnouncementBadge()
+                        .padding(.trailing, isLive ? 4 : 8)
                 }
 
                 if isLive {
@@ -377,7 +373,7 @@ private struct PresentationRow: View {
         .onHover { isHovered = $0 }
         .animation(.easeOut(duration: 0.12), value: isHovered)
         .animation(.easeOut(duration: 0.15), value: isSelected)
-        .accessibilityLabel("\(item.name)\(isLive ? ", live" : "")\(isLive && viewModel.liveArrangementMismatch ? ", arrangement mismatch" : "")")
+        .accessibilityLabel("\(item.name)\(isLive ? ", live" : "")\(viewModel.isOnAnnouncementLayer(item) ? ", running on the announcement layer" : "")")
         .accessibilityHint("Double tap to select")
     }
 
@@ -413,11 +409,8 @@ private struct MacPresentationRow: View {
 
             Spacer(minLength: 4)
 
-            if isLive && viewModel.liveArrangementMismatch {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.yellow)
-                    .help("Arrangement mismatch - ProPresenter's library arrangement doesn't match Sunday Service's selection for this song.")
+            if viewModel.isOnAnnouncementLayer(item) {
+                AnnouncementBadge()
             }
 
             if isLive {
@@ -431,7 +424,7 @@ private struct MacPresentationRow: View {
         }
         .padding(.vertical, 3)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(item.name)\(isLive ? ", live" : "")\(isLive && viewModel.liveArrangementMismatch ? ", arrangement mismatch" : "")")
+        .accessibilityLabel("\(item.name)\(isLive ? ", live" : "")\(viewModel.isOnAnnouncementLayer(item) ? ", running on the announcement layer" : "")")
         .accessibilityHint("Double tap to select")
     }
 }

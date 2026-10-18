@@ -20,7 +20,12 @@ final class ProPresenterViewModel {
     /// The playlist *item* that is live. A playlist can hold the same presentation twice, so the
     /// presentation's uuid alone can't say which row is live. Empty when ProPresenter doesn't say.
     var liveItemUUID: String = ""
+    /// The playlist that item belongs to, so ProPresenter's window can follow when a click moves the
+    /// service into a different one.
+    private var livePlaylistUUID: String = ""
     private var lastItemCheck: ContinuousClock.Instant?
+    /// What is running on the announcement layer (nil when nothing is). Independent of the live slide.
+    var announcementLayer: AnnouncementLayer?
     /// True when the live presentation's arrangement pin (from the Sunday Service playlist
     /// item) doesn't match what ProPresenter's engine is actually running, so the app fell
     /// back to Master. Surfaced in the UI so whoever's running ProPresenter knows to
@@ -118,6 +123,13 @@ final class ProPresenterViewModel {
         guard !liveItemUUID.isEmpty, let item = presentation.itemUUID,
               playlistItems.filter({ $0.uuid == presentation.uuid }).count > 1 else { return true }
         return item == liveItemUUID
+    }
+
+    /// Whether this playlist row is the one running on the announcement layer.
+    func isOnAnnouncementLayer(_ presentation: Presentation) -> Bool {
+        guard let layer = announcementLayer else { return false }
+        if let item = layer.itemUUID, let row = presentation.itemUUID { return item == row }
+        return layer.presentationUUID == presentation.uuid
     }
 
     /// The row in the loaded playlist that is live, preferring the exact item over a duplicate.
@@ -281,6 +293,7 @@ final class ProPresenterViewModel {
         selectedPresentation = nil
         presentationCache.removeAll()
         liveArrangementMismatch = false
+        announcementLayer = nil
     }
 
     func testConnection() async -> Bool {
@@ -307,11 +320,21 @@ final class ProPresenterViewModel {
                 guard !Task.isCancelled, let self else { return }
                 await self.fetchSlideStatus()
                 tick += 1
+                if tick % 2 == 0 {
+                    await self.refreshAnnouncementLayer()
+                }
                 if tick % Self.contentRefreshTicks == 0 {
                     await self.refreshSelectedPresentation()
                 }
             }
         }
+    }
+
+    private func refreshAnnouncementLayer() async {
+        guard isConnected else { return }
+        // On a failed read keep what was shown rather than flicker the indicator off.
+        guard let layer = try? await api.fetchAnnouncementLayer(host: host, port: portInt) else { return }
+        if layer != announcementLayer { announcementLayer = layer }
     }
 
     /// The websocket announces slide *changes*, but ProPresenter has no event for slide
@@ -321,12 +344,11 @@ final class ProPresenterViewModel {
     private func refreshSelectedPresentation() async {
         guard isConnected, let current = selectedPresentation else { return }
 
-        let fetched: Presentation?
-        if current.uuid == livePresentationUUID {
-            fetched = try? await api.fetchActivePresentation(host: host, port: portInt, arrangementUUID: current.arrangementUUID)
-        } else {
-            fetched = try? await api.fetchPresentation(host: host, port: portInt, uuid: current.uuid, arrangementUUID: current.arrangementUUID)
-        }
+        // Only the live item is re-read in the background. An item that is merely being browsed is left
+        // alone (Refresh reloads it): asking ProPresenter for it over and over is exactly the kind of
+        // traffic that can disturb its own window.
+        guard current.uuid == livePresentationUUID else { return }
+        let fetched = try? await api.fetchActivePresentation(host: host, port: portInt, arrangementUUID: current.arrangementUUID)
 
         // Selection can change while the fetch is in flight; don't clobber it.
         guard var updated = fetched,
@@ -449,12 +471,10 @@ final class ProPresenterViewModel {
         if let liveStatus = try? await api.fetchSlideIndex(host: host, port: portInt),
            liveStatus.presentationUUID == active.uuid {
             let countMismatch = liveStatus.totalCues.map { $0 != active.slides.count } ?? false
-            let thumbnailsOK: Bool
-            if let playlistUUID = active.playlistUUID, let itemIndex = active.playlistItemIndex {
-                thumbnailsOK = countMismatch ? false : await api.verifyThumbnailsAvailable(host: host, port: portInt, playlistUUID: playlistUUID, itemIndex: itemIndex, count: active.slides.count)
-            } else {
-                thumbnailsOK = !countMismatch
-            }
+            // Only the cue count is compared. Fetching every slide's thumbnail to double-check made
+            // ProPresenter answer a burst of images each time the live item changed, which delayed the
+            // next slide click.
+            let thumbnailsOK = !countMismatch
 
             if !thumbnailsOK,
                let masterFallback = try? await api.fetchActivePresentation(host: host, port: portInt, arrangementUUID: nil) {
@@ -469,6 +489,7 @@ final class ProPresenterViewModel {
 
         livePresentationUUID = active.uuid
         liveItemUUID = arrangementIsAuthoritative ? (authoritative?.itemUUID ?? "") : ""
+        if arrangementIsAuthoritative, let playlist = authoritativeResult?.playlistUUID { livePlaylistUUID = playlist }
 
         // Landing on the item the user was already viewing puts them back on the live link.
         if userOverrodeSelection, let viewed = selectedPresentation, isLive(viewed) {
@@ -535,8 +556,10 @@ final class ProPresenterViewModel {
 
         guard myFetchID == statusFetchID else { return }
 
-        pollFailureCount = 0
-        connectionHealthy = true
+        // Observable notifies on every assignment, even of an equal value, and each notification
+        // re-renders the views reading it - so only write when something changed.
+        if pollFailureCount != 0 { pollFailureCount = 0 }
+        if !connectionHealthy { connectionHealthy = true }
 
         let previousUUID = livePresentationUUID
         let triggerIdx = status.slideIndex
@@ -548,8 +571,9 @@ final class ProPresenterViewModel {
                pres.uuid == (status.presentationUUID ?? livePresentationUUID),
                let candidates = pres.triggerToDisplayMap[triggerIdx],
                !candidates.isEmpty {
-                liveSlideIndex = candidates.first(where: { $0 >= liveSlideIndex }) ?? candidates.first!
-            } else {
+                let mapped = candidates.first(where: { $0 >= liveSlideIndex }) ?? candidates.first!
+                if liveSlideIndex != mapped { liveSlideIndex = mapped }
+            } else if liveSlideIndex != triggerIdx {
                 liveSlideIndex = triggerIdx
             }
         }
@@ -679,8 +703,12 @@ final class ProPresenterViewModel {
         guard let apiIndex = isAlreadyLive ? slide.thumbnailIndex : slide.triggerIndex else { return }
 
         liveSlideIndex = index
+        // Image loads wait out the next moment: the next click is probably coming.
+        ThumbnailLoader.shared.noteTrigger()
         livePresentationUUID = pres.uuid
         liveItemUUID = pres.itemUUID ?? ""
+        let previousLivePlaylist = livePlaylistUUID
+        if let playlist = pres.playlistUUID { livePlaylistUUID = playlist }
         rejoinLiveIfViewingIt()
         lastUserTrigger = .now
         #if os(iOS)
@@ -691,7 +719,16 @@ final class ProPresenterViewModel {
         } else {
             try? await api.triggerSlide(host: host, port: portInt, uuid: pres.uuid, index: apiIndex)
         }
-        try? await api.focusPresentation(host: host, port: portInt, uuid: pres.uuid)
+        // Starting a different item: bring ProPresenter's own window along (the playlist first when the
+        // service moved to another one, then the presentation) so whoever watches ProPresenter sees
+        // the item that is actually running. Within the live item there is nothing to move, and
+        // skipping it keeps ProPresenter free for the next click.
+        if !isAlreadyLive {
+            if let playlist = pres.playlistUUID, playlist != previousLivePlaylist {
+                try? await api.focusPlaylist(host: host, port: portInt, uuid: playlist)
+            }
+            try? await api.focusPresentation(host: host, port: portInt, uuid: pres.uuid)
+        }
     }
 
     func triggerNext() async {

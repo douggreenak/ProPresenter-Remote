@@ -333,3 +333,12 @@ extension Collection {
         indices.contains(index) ? self[index] : nil
     }
 }
+
+
+/// The announcement layer (ProPresenter's second, independent layer - here a background loop sent to
+/// TVs outside) while it has something running. `itemUUID` is the playlist row it was started from.
+struct AnnouncementLayer: Equatable {
+    var name: String
+    var itemUUID: String?
+    var presentationUUID: String?
+}

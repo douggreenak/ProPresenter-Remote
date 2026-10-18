@@ -3,6 +3,56 @@ import SwiftUI
 import AppKit
 #endif
 
+// MARK: - Thumbnail Loader
+
+/// ProPresenter answers its API one request at a time, and rendering a thumbnail takes it a while
+/// (about 25 ms at the default size, over 300 ms at full size). A grid asking for a hundred pictures
+/// at once therefore made a slide click wait behind all of them. This loader keeps only a few
+/// requests in flight and holds new ones back for a moment after every slide trigger, so a click
+/// reaches ProPresenter with almost nothing in front of it.
+final class ThumbnailLoader: @unchecked Sendable {
+    static let shared = ThumbnailLoader()
+
+    private let lock = NSLock()
+    private var inFlight = 0
+    private var quietUntil = ContinuousClock.now
+    private let limit = 3
+    private let quietPeriod: Duration = .milliseconds(700)
+
+    /// Called whenever a slide is triggered.
+    func noteTrigger() {
+        lock.lock(); defer { lock.unlock() }
+        quietUntil = ContinuousClock.now + quietPeriod
+    }
+
+    private func tryStart() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard inFlight < limit, ContinuousClock.now >= quietUntil else { return false }
+        inFlight += 1
+        return true
+    }
+
+    private func finish() {
+        lock.lock(); defer { lock.unlock() }
+        inFlight -= 1
+    }
+
+    /// The picture's bytes, or nil if it failed, wasn't a 200, or the task was cancelled while waiting.
+    func data(for url: URL) async -> Data? {
+        while !tryStart() {
+            try? await Task.sleep(for: .milliseconds(30))
+            if Task.isCancelled { return nil }
+        }
+        defer { finish() }
+        // Skip the HTTP cache too: a refresh must show what ProPresenter has now.
+        let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
+        // ProPresenter answers 404 with an empty body, and URLSession doesn't throw on 404.
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+        return data
+    }
+}
+
 // MARK: - Cached Thumbnail Image
 
 struct ThumbnailImage: View {
@@ -10,6 +60,9 @@ struct ThumbnailImage: View {
     let url: URL?
     /// A smaller picture of the same slide to show while `url` (a larger one) is on its way.
     var placeholder: URL? = nil
+    /// How long to wait before fetching `url` when it isn't already cached. Full-size pictures use
+    /// this so clicking quickly through slides doesn't ask ProPresenter to render one per click.
+    var delay: Duration = .zero
 
     @State private var image: Image?
     @State private var loadedURL: URL?
@@ -54,12 +107,17 @@ struct ThumbnailImage: View {
                 image = placeholder.flatMap(Self.platformImage(for:))
             }
             guard let url else { loadedURL = nil; return }
-            // ProPresenter answers 404 with an empty body, and URLSession doesn't throw on
-            // 404 — without the status check that decodes to nil and silently keeps nothing.
-            // Skip the HTTP cache too: a refresh must show what ProPresenter has now.
-            let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
-            guard let (data, response) = try? await URLSession.shared.data(for: request),
-                  (response as? HTTPURLResponse)?.statusCode == 200 else { return }
+            // No small picture to show meanwhile: get the cheap one first.
+            if image == nil, let placeholder,
+               let data = await ThumbnailLoader.shared.data(for: placeholder),
+               let small = Self.decode(data: data, url: placeholder) {
+                image = small
+            }
+            if delay > .zero {
+                try? await Task.sleep(for: delay)
+                if Task.isCancelled { return }
+            }
+            guard let data = await ThumbnailLoader.shared.data(for: url) else { return }
             if let decoded = Self.decode(data: data, url: url) {
                 image = decoded
                 loadedURL = url
