@@ -23,6 +23,8 @@ final class ProPresenterViewModel {
     /// The playlist that item belongs to, so ProPresenter's window can follow when a click moves the
     /// service into a different one.
     private var livePlaylistUUID: String = ""
+    /// The start of a different playlist item that is still in progress (see `triggerSlide`).
+    private var startTask: Task<Void, Never>?
     private var lastItemCheck: ContinuousClock.Instant?
     /// What is running on the announcement layer (nil when nothing is). Independent of the live slide.
     var announcementLayer: AnnouncementLayer?
@@ -434,7 +436,10 @@ final class ProPresenterViewModel {
         let knownArrUUID = authoritative?.arrangementUUID
             ?? playlistItems.first(where: { $0.uuid == livePresentationUUID })?.arrangementUUID
 
-        guard var active = try? await api.fetchActivePresentation(host: host, port: portInt, arrangementUUID: knownArrUUID) else { return }
+        guard var active = try? await api.fetchActivePresentation(host: host, port: portInt, arrangementUUID: knownArrUUID) else {
+            await showSomethingWhenNothingIsLive(authoritativeResult)
+            return
+        }
 
         // The authoritative lookup and this fetch are two separate requests; if the live
         // slide moved in between and they now name different presentations, the pointer we
@@ -528,6 +533,21 @@ final class ProPresenterViewModel {
 
     /// Finds the playlist holding the live item and shows it. The playlist ProPresenter says is live
     /// is tried first, and an exact item match wins over merely having the same presentation.
+    /// ProPresenter has nothing live (before a service starts, or after everything was cleared), so there
+    /// is no live item to open. Show the playlist and item ProPresenter last had active (else the first
+    /// playlist) so the sidebar and grid are usable, and clicking a slide can still start it. This is not
+    /// "browsing away": as soon as something goes live the app follows it.
+    private func showSomethingWhenNothingIsLive(_ lastActive: (item: PlaylistItem, playlistUUID: String?)?) async {
+        guard selectedPresentation == nil else { return }
+        guard let playlist = playlists.first(where: { $0.uuid == lastActive?.playlistUUID }) ?? playlists.first else { return }
+        await selectPlaylist(playlist)
+        if let itemUUID = lastActive?.item.asPresentation()?.itemUUID,
+           let row = playlistItems.first(where: { $0.itemUUID == itemUUID }) {
+            await selectPresentation(row)
+        }
+        userOverrodeSelection = false
+    }
+
     private func findAndSelectPlaylistContaining(_ presentationUUID: String, itemUUID: String = "", preferredPlaylistUUID: String? = nil) async {
         let ordered = playlists.sorted { a, _ in a.uuid == preferredPlaylistUUID }
         for exact in itemUUID.isEmpty ? [false] : [true, false] {
@@ -683,51 +703,69 @@ final class ProPresenterViewModel {
     // MARK: - Actions (only called by explicit user interaction)
 
     func triggerSlide(at index: Int) async {
+        // Starting an item takes ProPresenter a moment; a click that arrives meanwhile waits for it,
+        // since a trigger sent too early lands on the previous item or is dropped.
+        await startTask?.value
+
         guard !inputLocked, let pres = selectedPresentation,
               let slide = pres.slides[safe: index] else { return }
 
-        // Two different calls depending on whether this presentation is already the one live:
-        // - Already live: use the arrangement-scoped active-cue endpoint. It correctly respects
-        //   whatever arrangement made this presentation active (the playlist's pin, in the
-        //   normal case) and, unlike the uuid-scoped call below, can address an individual
-        //   repeated slide (confirmed live: jumping straight to an arrangement's 2nd repeat of
-        //   a group worked immediately, no extra steps). `index` here is `thumbnailIndex`, the
-        //   cue-relative position - the same numbering the grid's thumbnails already use.
-        // - Not yet live (e.g. jumping ahead to start a different song from a specific slide):
-        //   "active" doesn't apply yet, so fall back to the uuid-scoped call, addressed by
-        //   `triggerIndex` (the presentation's LIBRARY-arrangement position - see the long
-        //   comment on `apiTriggerIndex` in `ProPresenterAPI.mapPayload`). This can't address a
-        //   slide that only exists at its position because of a repeat in the playlist's pin,
-        //   but that's a rare cost for "start a different song partway through" specifically.
+        // Two different routes depending on whether this presentation is already the one live:
+        // - Already live: the arrangement-scoped active-cue endpoint. It respects whatever arrangement
+        //   made this presentation active (the playlist's pin) and can address an individual repeated
+        //   slide. `index` is `thumbnailIndex`, the cue-relative position - the same numbering the
+        //   grid's thumbnails use.
+        // - Starting a different item: through its *playlist item*, never the library presentation.
+        //   Triggering the library copy ("the lyrics source") left ProPresenter with no active playlist
+        //   item and its window on the wrong entry. Instead the playlist item is focused (without
+        //   triggering anything) and its cue is triggered, which starts exactly that playlist row with
+        //   its own arrangement - no opening slide flashes first - and leaves ProPresenter's window on
+        //   it. Verified against a live ProPresenter: same slide as the active-cue route, correct item.
+        //   Only an item with no playlist context falls back to the library route, addressed by
+        //   `triggerIndex` (see the comment on `apiTriggerIndex` in `ProPresenterAPI.mapPayload`).
         let isAlreadyLive = isLive(pres)
-        guard let apiIndex = isAlreadyLive ? slide.thumbnailIndex : slide.triggerIndex else { return }
+        let playlistRoute: (playlist: String, item: Int, cue: Int)? = {
+            guard !isAlreadyLive, let playlist = pres.playlistUUID, let item = pres.playlistItemIndex,
+                  let cue = slide.thumbnailIndex else { return nil }
+            return (playlist, item, cue)
+        }()
+        guard let apiIndex = isAlreadyLive ? slide.thumbnailIndex : (playlistRoute?.cue ?? slide.triggerIndex) else { return }
 
+        let previousLiveSlide = liveSlideIndex
         liveSlideIndex = index
         // Image loads wait out the next moment: the next click is probably coming.
         ThumbnailLoader.shared.noteTrigger()
         livePresentationUUID = pres.uuid
         liveItemUUID = pres.itemUUID ?? ""
-        let previousLivePlaylist = livePlaylistUUID
         if let playlist = pres.playlistUUID { livePlaylistUUID = playlist }
         rejoinLiveIfViewingIt()
         lastUserTrigger = .now
         #if os(iOS)
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         #endif
+
         if isAlreadyLive {
             try? await api.triggerActiveCue(host: host, port: portInt, index: apiIndex)
+        } else if let route = playlistRoute {
+            let host = self.host, port = portInt, uuid = pres.uuid, itemUUID = pres.itemUUID
+            let work = Task { [api] in
+                let focused = await api.focusPlaylistItem(host: host, port: port, playlistUUID: route.playlist, itemIndex: route.item, itemUUID: itemUUID)
+                guard focused else { return false }
+                try? await api.triggerFocusedCue(host: host, port: port, index: route.cue)
+                await api.waitUntilStarted(host: host, port: port, presentationUUID: uuid, cue: route.cue)
+                return true
+            }
+            startTask = Task { _ = await work.value }
+            let started = await work.value
+            if !started {
+                // ProPresenter's focus didn't land on that playlist item, so nothing was triggered;
+                // show what it is actually doing again.
+                liveSlideIndex = previousLiveSlide
+                lastUserTrigger = nil
+                await fetchActivePresentation()
+            }
         } else {
             try? await api.triggerSlide(host: host, port: portInt, uuid: pres.uuid, index: apiIndex)
-        }
-        // Starting a different item: bring ProPresenter's own window along (the playlist first when the
-        // service moved to another one, then the presentation) so whoever watches ProPresenter sees
-        // the item that is actually running. Within the live item there is nothing to move, and
-        // skipping it keeps ProPresenter free for the next click.
-        if !isAlreadyLive {
-            if let playlist = pres.playlistUUID, playlist != previousLivePlaylist {
-                try? await api.focusPlaylist(host: host, port: portInt, uuid: playlist)
-            }
-            try? await api.focusPresentation(host: host, port: portInt, uuid: pres.uuid)
         }
     }
 

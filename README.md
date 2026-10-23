@@ -22,7 +22,7 @@ macOS will block it the first time because the build is not notarized; [`Release
 - **Preview-only items** -- Some playlist items can't be read from ProPresenter's API (it answers 404 for their slide details). Pro Remote still shows their slides, rebuilt from the playlist thumbnails, with a **Preview** badge. They can't be started from the app; start them in ProPresenter and the app's controls take over.
 - **Follows ProPresenter** -- The view follows whichever playlist item is live, even when the same presentation appears twice in a playlist, until you deliberately open a different item. Then it stays where you put it and shows *Go to Active*; Escape or Go to Active rejoins the live item.
 - **Announcement layer** -- When something is running on ProPresenter's announcement layer (for example a loop sent to outside TVs), its playlist row gets a blue TV mark and an "Announcements" capsule appears next to LIVE. It is independent of the live slide.
-- **ProPresenter follows you** -- Clicking a slide that starts a different item also moves ProPresenter's own window to that item (and its playlist). Browsing items in the app never does: it leaves ProPresenter's focus where its operator put it.
+- **ProPresenter follows you** -- Clicking a slide that starts a different item starts that exact playlist item in ProPresenter (not the library copy of the song), so ProPresenter's own window moves to it too, even across playlists. Browsing items in the app never changes anything in ProPresenter.
 - **Refresh on open** -- Opening the app, or coming back to it from the home screen, reloads everything from ProPresenter and jumps to the live slide. Slide controls stay locked until that finishes (and for a moment after), so the tap that opens the app can't fire a slide. The refresh button in the toolbar does the same full reload on demand: playlists, items, the live presentation, and every slide picture.
 - **Automatic Discovery** -- ProPresenter is found over Bonjour; pick it from a list in Settings instead of typing an address.
 - **Keyboard Shortcuts** -- Arrow keys, Space, Return, Escape, and Cmd+arrow shortcuts for hands-free control (see below).
@@ -168,7 +168,7 @@ The Macros page needs a connection to ProPresenter (the connection badge should 
 
 ### ProPresenter shows blue selection outlines
 
-Pro Remote caches presentation data to avoid repeatedly hitting the `GET /v1/presentation/{uuid}` endpoint, which causes ProPresenter to "focus" on presentations. If you see blue outlines appearing, try pulling to refresh in the app -- this clears the cache and re-fetches using the safer `/v1/presentation/active` endpoint.
+Pro Remote caches presentation data and only re-reads the live item in the background, so it asks ProPresenter for as little as possible. If you see blue outlines appearing, try pulling to refresh in the app -- this clears the cache and re-fetches using the `/v1/presentation/active` endpoint.
 
 ## 100% Built by AI
 
